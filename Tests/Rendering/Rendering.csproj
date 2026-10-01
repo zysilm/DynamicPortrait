@@ -17,6 +17,7 @@
     <Compile Include="../../DynamicPortrait/Rendering/OpaqueTexturePass.cs" Link="OpaqueTexturePass.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/SwapChainCapture.cs" Link="SwapChainCapture.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/CaptureCycle.cs" Link="CaptureCycle.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/CameraOverride.cs" Link="CameraOverride.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/RenderCommandQueue.cs" Link="RenderCommandQueue.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/NativeCallbacks.cs" Link="NativeCallbacks.cs" />
     <Compile Include="../../DynamicPortrait/Camera/PortraitCamera.cs" Link="PortraitCamera.cs" />

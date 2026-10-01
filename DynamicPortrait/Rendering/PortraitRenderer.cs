@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// The two-tick / pre-UI capture / suppressed Present pipeline and signatures are
+// The two-tick / render marker / suppressed Present pipeline and signatures are
 // adapted from WesleyLuk90/ffxiv-vr (AGPL-3.0-or-later), GameHooks.cs / VRSession.cs.
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
@@ -66,10 +66,17 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     private double sizeChangedAt;
     private double lastDiagnostic;
     private int traceEvents;
+    private bool normalAfterPortrait;
 
     // Diagnostic mode is session-only and can only change while rendering is stopped.
-    public bool MainViewOnly { get; private set; } = true;
-    public void SetMainViewOnly(bool value) { if (!Enabled) MainViewOnly = value; }
+    public bool MainViewOnly { get; private set; }
+    public void SetMainViewOnly(bool value)
+    {
+        if (Enabled || wantsEnabled) return;
+        MainViewOnly = value;
+        SubjectReady = false;
+        textures.ClearPublished();
+    }
 
     public bool Enabled { get; private set; }
     public long UiDraws => Interlocked.Read(ref uiDraws);
@@ -98,6 +105,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         this.interop = interop;
         this.scanner = scanner;
         frameworkService = framework;
+        resolution = requestedResolution = config.Resolution;
         // No native hooks are installed by loading the plugin or opening settings.
     }
 
@@ -121,7 +129,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             visibility.Enable();
             tick.Enable();
             hooksReady = true;
-            log.Info("DynamicPortrait 0.1.0.4 native pipeline initialized; diagnostic captures DXGI backbuffer before Present.");
+            log.Info("DynamicPortrait 0.1.0.7 native pipeline initialized; portrait completion captures the final backbuffer before suppressed Present.");
         }
         catch (Exception e)
         {
@@ -155,6 +163,27 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         SubjectReady = false;
         solver.Reset();
         Status = "Waiting for subject after territory change";
+    }
+
+    public void ResetSession()
+    {
+        SetEnabled(false);
+        _ = frameworkService.RunOnFrameworkThread(() =>
+        {
+            if (stopping) return;
+            // Pending submitted frames still drain through their marker/Present.
+            MainViewOnly = false;
+            SubjectReady = false;
+            Fault = null;
+            solver.Reset();
+            lastSubject = 0;
+            lastCapture = -1;
+            lastPoseTime = 0;
+            resolution = requestedResolution = config.Resolution;
+            aspect = requestedAspect = 1;
+            textures.ClearPublished();
+            Status = "All settings reset; rendering stopped";
+        });
     }
 
     public void RecordUiDraw()
@@ -200,6 +229,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     {
         Interlocked.Increment(ref callbacks);
         var original = tick!.Original;
+        var submittedPortrait = false;
         try
         {
             if (Enabled && clock.Elapsed.TotalSeconds - lastDiagnostic >= 5)
@@ -216,25 +246,26 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 {
                     if (Enabled && cycle.TimedOut(clock.Elapsed.TotalSeconds))
                         Fail(new InvalidOperationException("Render-thread capture timed out. Pending commands remain registered until consumed; please report the diagnostics."));
-                    if (CanCapture() && clock.Elapsed.TotalSeconds - lastCapture >= 1.0 / config.RefreshRate)
+                    if (!cycle.HasPending && CanCapture() && clock.Elapsed.TotalSeconds - lastCapture >= 1.0 / config.RefreshRate)
                     {
                         SubjectReady = subjects.TryRead(config, out var bone);
                         Status = subjects.Status;
-                        if (SubjectReady && GameTextureSource.TrySourceSize(out sourceWidth, out sourceHeight))
+                        if (SubjectReady && GameTextureSource.TryBackbufferSize(out sourceWidth, out sourceHeight))
                         {
                             var now = clock.Elapsed.TotalSeconds;
                             if (lastSubject != subjects.CurrentId) { solver.Reset(); lastSubject = subjects.CurrentId; }
                             pose = solver.Solve(bone, config, (float)(now - lastPoseTime));
                             lastPoseTime = now;
                             (cropWidth, cropHeight) = PortraitCamera.Crop(sourceWidth, sourceHeight, resolution, aspect);
-                            render = cycle.TryBegin(now, out captureId);
-                            lastCapture = now;
+                            render = cycle.TryBegin(now, out var nextId);
+                            if (render) { captureId = nextId; lastCapture = now; }
                         }
                     }
                 }
                 catch (Exception e) { Fail(e); }
                 if (render)
                 {
+                    submittedPortrait = true;
                     var started = Stopwatch.GetTimestamp();
                     cameraApplied = captureQueued = false;
                     inPortrait = true;
@@ -247,7 +278,9 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                     }
                     finally
                     {
-                        cameraOverride.Restore();
+                        // The renderer may still be using this camera after CPU
+                        // submission returns. Restore at completion or before
+                        // the next native SetMatrices, rather than tick return.
                         inPortrait = false;
                         LastPortraitMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                         TraceEvent("portrait tick exit");
@@ -257,15 +290,19 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                     if (stopping) return result;
                     if (!captureQueued)
                     {
-                        cycle.CancelBeforeSubmission(captureId);
+                        if (cameraApplied) cycle.CaptureExecuted(captureId);
+                        else cycle.CancelBeforeSubmission(captureId);
+                        cameraOverride.Restore();
                         Fail(new InvalidOperationException($"Portrait capture was not submitted (cameraApplied={cameraApplied}). No render-thread completion is required at tick return."));
                     }
                 }
             }
             // Always submit a normal tick after the portrait tick, even if a managed capture step failed.
             NormalTicks++;
-            if (Enabled && !MainViewOnly) TraceEvent("normal tick enter");
-            return original(native);
+            normalAfterPortrait = submittedPortrait;
+            if (submittedPortrait) TraceEvent("normal tick after portrait enter");
+            try { return original(native); }
+            finally { normalAfterPortrait = false; }
         }
         finally { Interlocked.Decrement(ref callbacks); }
     }
@@ -275,7 +312,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         Interlocked.Increment(ref callbacks);
         try
         {
-            if (inPortrait && cameraOverride.Matches(camera)) cameraOverride.Restore();
+            if (cameraOverride.Matches(camera)) cameraOverride.Restore();
             matrices!.Original(camera, ptr);
             if (!inPortrait || stopping) return;
             try
@@ -307,6 +344,9 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 }
                 catch (Exception e) { Fail(e); }
             }
+            // All UI callbacks in the portrait submission belong to this view,
+            // including repeated callbacks after the marker has been queued.
+            if (inPortrait && cameraApplied && !stopping) return;
             ui!.Original(server, flag);
         }
         finally { Interlocked.Decrement(ref callbacks); }
@@ -321,9 +361,9 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             {
                 cycle.CaptureExecuted(request.Id);
                 TraceEvent($"capture id={request.Id}, cpuPortrait={inPortrait}");
-                if (!stopping)
-                    try { GameTextureSource.Capture(textures, request.Width, request.Height); }
-                    catch (Exception e) { Fail(e); }
+                // This marks frame identity only. The scene source used here in
+                // 0.1.0.4 was empty on the tested client. Copy the final buffer
+                // when this frame reaches Present instead.
                 // Native fallback is a real target bind. On success no rebinding is needed.
                 return;
             }
@@ -340,8 +380,9 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             var device = Device.Instance();
             if (device != null && device->SwapChain == swapChain && Enabled)
             {
-                TraceEvent($"present enter, cpuPortrait={inPortrait}");
-                if (MainViewOnly)
+                if (MainViewOnly || inPortrait || normalAfterPortrait || cycle.HasPending)
+                    TraceEvent($"present enter, cpuPortrait={inPortrait}, normalAfterPortrait={normalAfterPortrait}");
+                if (MainViewOnly && !cycle.HasPending)
                 {
                     try
                     {
@@ -359,11 +400,23 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                     catch (Exception e) { Fail(e); }
                 }
             }
-            if (device != null && device->SwapChain == swapChain && cycle.ConsumePresent(out var suppress))
+            if (device != null && device->SwapChain == swapChain && cycle.ConsumePresent(out var completedId, out var suppress))
             {
-                TraceEvent($"present after capture, suppress={suppress}, cpuPortrait={inPortrait}");
+                TraceEvent($"present after marker id={completedId}, suppress={suppress}, cpuPortrait={inPortrait}");
                 if (suppress)
                 {
+                    try
+                    {
+                        if (!stopping && Enabled && !MainViewOnly)
+                        {
+                            SwapChainCapture.CaptureRegion(textures, (Silk.NET.DXGI.IDXGISwapChain*)swapChain->DXGISwapChain,
+                                (Silk.NET.Direct3D11.ID3D11DeviceContext*)device->D3D11DeviceContext,
+                                cropWidth, cropHeight, sourceWidth, sourceHeight);
+                            TraceEvent($"portrait backbuffer copied id={completedId}, {textures.ProbeResult}");
+                        }
+                    }
+                    catch (Exception e) { Fail(e); }
+                    finally { cameraOverride.Restore(); }
                     SkippedPresents++;
                     return;
                 }

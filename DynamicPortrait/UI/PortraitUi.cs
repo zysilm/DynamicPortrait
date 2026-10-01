@@ -10,15 +10,30 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
 {
     private bool settingsOpen;
     private bool resetWindow = true;
+    private bool resetSettingsWindow;
     private bool dirty;
     private long lastSaved;
     private string boneFilter = "";
 
     public void OpenSettings() => settingsOpen = true;
+    public void ResetAll()
+    {
+        renderer.SetEnabled(false);
+        config.ResetDefaults();
+        subjects.Clear();
+        renderer.ResetSession();
+        boneFilter = "";
+        resetWindow = true;
+        resetSettingsWindow = true;
+        settingsOpen = true;
+        dirty = false;
+        save();
+    }
     public void ResetWindow()
     {
-        config.WindowPosition = new(60, 100);
-        config.WindowSize = new(340, 380);
+        var defaults = new Configuration();
+        config.WindowPosition = defaults.WindowPosition;
+        config.WindowSize = defaults.WindowSize;
         config.ShowPortrait = true;
         config.LockWindow = config.Borderless = config.ClickThrough = false;
         resetWindow = true;
@@ -48,6 +63,7 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         {
             ImGui.SetNextWindowPos(config.WindowPosition, ImGuiCond.Always);
             ImGui.SetNextWindowSize(config.WindowSize, ImGuiCond.Always);
+            ImGui.SetNextWindowCollapsed(false, ImGuiCond.Always);
             resetWindow = false;
         }
         ImGui.SetNextWindowSizeConstraints(new(120, 120), new(4096, 4096));
@@ -89,6 +105,13 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
 
     private void DrawSettings()
     {
+        if (resetSettingsWindow)
+        {
+            ImGui.SetNextWindowPos(new(430, 100), ImGuiCond.Always);
+            ImGui.SetNextWindowSize(new(510, 720), ImGuiCond.Always);
+            ImGui.SetNextWindowCollapsed(false, ImGuiCond.Always);
+            resetSettingsWindow = false;
+        }
         ImGui.SetNextWindowSize(new(510, 720), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Dynamic Portrait settings###DynamicPortrait.Settings", ref settingsOpen)) { ImGui.End(); return; }
         try
@@ -104,12 +127,15 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             ImGui.EndDisabled();
             ImGui.TextWrapped(mainViewOnly
                 ? "Diagnostic mode: copies the final main display before Present, including game UI. No second camera or extra tick."
-                : "Experimental second camera: main-view flicker remains under investigation.");
+                : "Portrait camera: follows the selected bone. Runtime behavior still requires in-game verification.");
+            if (ImGui.Button("Reset all settings")) ResetAll();
+            ImGui.TextWrapped("Reset restores all defaults, clears the locked subject and stops rendering.");
             dirty |= ImGui.Checkbox("Show portrait window", ref config.ShowPortrait);
             ImGui.TextWrapped(renderer.Status);
             if (renderer.Fault != null) ImGui.TextWrapped($"Error: {renderer.Fault}");
             ImGui.Separator();
 
+            ImGui.BeginDisabled(mainViewOnly);
             var subject = (int)config.Subject;
             if (ImGui.Combo("Subject", ref subject, "Self\0Current target\0Locked character\0"))
             { config.Subject = (SubjectMode)subject; dirty = true; }
@@ -141,9 +167,10 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             dirty |= ImGui.DragFloat3("Look-at offset", ref config.Offset, 0.01f, -10, 10);
             dirty |= ImGui.SliderFloat("Near clip", ref config.NearClip, 0.005f, 0.5f, "%.3f");
             dirty |= ImGui.SliderFloat("Smoothing", ref config.Smoothing, 0, 1, "%.2f s");
+            ImGui.EndDisabled();
             ImGui.Separator();
             dirty |= ImGui.SliderInt("Refresh limit", ref config.RefreshRate, 1, 60, "%d FPS");
-            dirty |= ImGui.SliderInt("Output long edge", ref config.Resolution, 128, 1024, "%d px");
+            dirty |= ImGui.SliderInt("Output long edge", ref config.Resolution, 128, 4096, "%d px");
             ImGui.TextWrapped("Output is a centered crop. The additional scene render still uses the game's resolution.");
             dirty |= ImGui.Checkbox("Lock position and size", ref config.LockWindow);
             dirty |= ImGui.Checkbox("Hide title bar", ref config.Borderless);

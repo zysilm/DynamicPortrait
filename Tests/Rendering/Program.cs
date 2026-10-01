@@ -32,6 +32,7 @@ internal static unsafe class Program
         CheckAbi(typeof(NativeCallbacks.Ui), typeof(AtkServer), "ProcessUICommandsAlt");
         TestDelayedCommands();
         TestFallback();
+        CameraStateTest.Run();
 
         using var gpu = new OffscreenGpu();
         SwapChainTest.Run(gpu);
@@ -147,6 +148,12 @@ internal static unsafe class Program
         diagnostic.CaptureExecuted(mainView);
         Check("Main-view diagnostic completes without suppressing Present", diagnostic.ConsumePresent(out var suppress) && !suppress);
         Check("Main-view diagnostic permits next capture", diagnostic.TryBegin(1, out _, suppress: false));
+        var matched = new CaptureCycle();
+        matched.TryBegin(0, out var submitted);
+        Check("Portrait submission retains its frame until completion", matched.HasPending && !matched.ConsumePresent(out _, out _));
+        matched.CaptureExecuted(submitted);
+        Check("Completed Present retains the exact submitted portrait ID", matched.ConsumePresent(out var completed, out suppress)
+            && completed == submitted && suppress && !matched.HasPending);
     }
 
     private static void TestFallback()

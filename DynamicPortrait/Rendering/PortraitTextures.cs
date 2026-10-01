@@ -37,6 +37,7 @@ internal sealed unsafe class PortraitTextures : IDisposable
     private bool probeRequested = true;
     public string ProbeResult { get; private set; } = "pending";
     public void RequestProbe() { lock (gate) probeRequested = true; }
+    public void ClearPublished() { lock (gate) front = 0; }
     public long Copies { get; private set; }
 
     public (nint Handle, int Width, int Height) Read()

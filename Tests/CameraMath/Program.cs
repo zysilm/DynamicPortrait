@@ -71,5 +71,24 @@ config.BoneName = "";
 config.WindowSize = new(float.NaN, -50);
 config.Normalize();
 Check("Invalid persisted configuration is repaired", float.IsFinite(config.Distance) && float.IsFinite(config.FieldOfView)
-    && config.RefreshRate == 1 && config.BoneName == "j_kao" && config.WindowSize.X >= 120 && config.WindowSize.Y >= 120);
+    && config.RefreshRate == 1 && config.BoneName == "j_sebo_c" && config.WindowSize.X >= 120 && config.WindowSize.Y >= 120);
+// Change every public setting, so adding a field without resetting it fails here.
+var settingFields = typeof(Configuration).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+foreach (var field in settingFields)
+{
+    object replacement = field.FieldType == typeof(bool) ? !(bool)field.GetValue(config)!
+        : field.FieldType == typeof(float) ? 99f
+        : field.FieldType == typeof(int) ? 99
+        : field.FieldType == typeof(string) ? "changed"
+        : field.FieldType == typeof(Vector2) ? new Vector2(999, 999)
+        : field.FieldType == typeof(Vector3) ? new Vector3(999, 999, 999)
+        : field.FieldType.IsEnum ? Enum.ToObject(field.FieldType, 2)
+        : throw new Exception($"Add a non-default fixture for {field.Name}");
+    field.SetValue(config, replacement);
+}
+config.Version = 99;
+config.ResetDefaults();
+var defaults = new Configuration();
+Check("Reset all restores every public setting and schema version", config.Version == defaults.Version
+    && settingFields.All(field => Equals(field.GetValue(config), field.GetValue(defaults))));
 Console.WriteLine($"{passed} camera/configuration checks passed.");

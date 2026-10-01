@@ -10,6 +10,7 @@ internal sealed class CaptureCycle
     private long awaitingPresent;
     private double startedAt;
     private bool suppressPresent;
+    public bool HasPending { get { lock (gate) return active != 0; } }
 
     public bool TryBegin(double now, out long id, bool suppress = true)
     {
@@ -35,9 +36,13 @@ internal sealed class CaptureCycle
     public bool ConsumePortraitPresent() => ConsumePresent(out var suppress) && suppress;
 
     public bool ConsumePresent(out bool suppress)
+        => ConsumePresent(out _, out suppress);
+
+    public bool ConsumePresent(out long id, out bool suppress)
     {
         lock (gate)
         {
+            id = awaitingPresent;
             suppress = suppressPresent;
             if (awaitingPresent == 0) return false;
             active = awaitingPresent = 0;

@@ -1,7 +1,7 @@
-name: Build
+name: Build Feature Branch
 on:
   push:
-    branches: ['**']
+    branches-ignore: [main]
   pull_request:
 permissions:
   contents: read

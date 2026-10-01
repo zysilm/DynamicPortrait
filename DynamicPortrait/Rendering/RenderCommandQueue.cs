@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Marker protocol adapted from WesleyLuk90/ffxiv-vr, RenderPipelineInjector.cs.
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
-using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using FFXIVClientStructs.Interop;
 using System.Collections.Concurrent;
 
@@ -27,8 +26,8 @@ internal sealed unsafe class RenderCommandQueue
 
     public bool EnqueueCapture(long id, int width, int height)
     {
-        var manager = RenderTargetManager.Instance();
-        var target = manager == null ? null : manager->ToneAdjustSource;
+        var device = Device.Instance();
+        var target = device == null || device->SwapChain == null ? null : device->SwapChain->BackBuffer;
         if (target == null || target->MipRenderTargets == null
             || target->MipRenderTargets->D3D11RenderTargetViewOrDepthStencilView == null) return false;
         var locals = ThreadLocals.ThreadLocalInstance();

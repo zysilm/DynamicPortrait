@@ -1,65 +1,40 @@
-# DynamicPortrait
+# Dynamic Portrait
 
-An experimental Dalamud plugin intended to render an independent bone-following camera into an in-game portrait window. Licensed under **AGPL-3.0-or-later**.
+FFXIV Dalamud 插件，在独立小窗中显示跟随角色骨骼的镜头。可以选择角色与骨骼，调整角度、距离、FOV、平滑和窗口大小。目前仍处于实验阶段。
 
-**0.1.0.4 status:** the user has confirmed in-game that the default diagnostic mode displays the main camera's final backbuffer in the small window. This includes game UI and is not an independent camera. Bone, subject and camera-angle controls do not affect this mode. The experimental second-camera path still produces a black portrait and main-view flicker; it is not working yet. See [in-game findings](docs/BACKBUFFER_DIAGNOSTIC_0.1.0.4.md).
+## 安装
 
-## Build and load
+在 `/xlsettings` → **Experimental** → **Custom Plugin Repositories** 中添加：
 
-Requires .NET 10 and Dalamud API 15. Like CombatSimulator, the Dalamud SDK uses `%APPDATA%/XIVLauncher/addon/Hooks/dev` on Windows. Set `DALAMUD_HOME` only when using another distribution directory.
+```text
+https://raw.githubusercontent.com/zysilm/DynamicPortrait/main/pluginmaster.json
+```
+
+保存后，在 `/xlplugins` 中搜索 **Dynamic Portrait** 并安装。
+
+## 使用
+
+输入 `/dportrait` 打开设置，勾选 **Render portrait** 开启。每次加载插件后渲染默认关闭。
+
+默认跟随自身的 **Chest**（`j_sebo_c`），输出尺寸默认 1024，上限 4096；默认窗口大小为 340 × 380。诊断模式只复制主画面，相机控制在该模式下禁用。
+
+- `/dportrait on` / `off`：开启 / 停止渲染。
+- `/dportrait toggle`：显示 / 隐藏小窗。
+- `/dportrait reset`：重置小窗。
+- `/dportrait resetall` 或 **Reset all settings**：恢复全部默认设置、清除锁定角色并停止渲染。
+
+## 构建与发布
+
+需要 .NET 10 和 Dalamud API 15。
 
 ```powershell
 dotnet build DynamicPortrait/DynamicPortrait.csproj -c Release
-dotnet run --project Tests/CameraMath/CameraMath.csproj -c Release
-dotnet run --project Tests/Rendering/Rendering.csproj -c Release -- artifacts/offline-render
 ```
 
-DLL: `DynamicPortrait/bin/Release/DynamicPortrait.dll`
+DLL 位于 `DynamicPortrait/bin/Release/DynamicPortrait.dll`。Windows 默认使用 `%APPDATA%/XIVLauncher/addon/Hooks/dev`；其他位置可设置 `DALAMUD_HOME`。
 
-SDK package: `DynamicPortrait/bin/Release/DynamicPortrait/latest.zip`
+与 CombatSimulator 一样，推送 `main` 自动构建并发布 `v版本号`，更新自定义仓库索引；发布新版本前同步更新 csproj 与插件清单中的版本号。
 
-Add the DLL to Dalamud's developer plugin locations. Keep the dependency DLLs beside it; for distribution, use the complete ZIP. The plugin does not require FFXIV VR, SteamVR, OpenXR or a headset.
+## 许可
 
-## Use
-
-- `/dportrait`: open settings.
-- `/dportrait on` / `off`: start / stop rendering.
-- `/dportrait toggle`: show / hide the window.
-- `/dportrait reset`: recover a hidden, locked or off-screen window.
-
-Rendering starts **disabled on every plugin load**, with `Diagnostic: capture main view only` selected. Enable rendering to display the main camera's final output. Window size and capture settings apply; subject, bone, yaw/pitch/roll, distance, FOV, local offset and smoothing are for the unfinished second-camera path. Right-click the portrait for settings. Position, size and camera settings are saved; locked character identity is session-only and clears on territory changes.
-
-Since 0.1.0.1, no native hooks are installed until rendering is explicitly started. The startup/capture crash in 0.1.0.0 is addressed by correcting the Present ABI, retaining asynchronous capture requests until completion, and replacing the invalid zero-target marker. See [crash analysis and offline tests](docs/CRASH_FIX_0.1.0.1.md).
-
-The bone list covers the model's body/root partial skeleton. Attached weapons/accessories are not yet supported. Bone names differ across models; missing bones show a status instead of dereferencing an invalid index. Bone orientation uses the skeleton's native axes, so different bones may need different angles.
-
-## Current renderer and limits
-
-The default diagnostic backend copies the actual DXGI backbuffer before Present, without an additional tick or camera override. It converts the private copy to opaque RGBA8 for ImGui display. It can include game UI and other overlays; HDR tone mapping is not implemented.
-
-The unfinished **second-camera backend** is adapted from the [FFXIV VR](https://github.com/WesleyLuk90/ffxiv-vr) pipeline:
-
-1. At the configured refresh interval, run a portrait Framework tick with overridden camera matrices.
-2. Queue a marker before game UI drawing; the render thread copies the centered scene region into a GPU texture.
-3. The render thread suppresses the portrait Present when it reaches the queued capture. CPU tick return does not imply GPU/render-thread completion. Camera fields are restored after CPU submission.
-4. Run the normal tick and display the portrait texture through ImGui.
-
-It is **not yet a render-only extra pass**: each portrait update adds an entire game tick. Input, animation timing, other plugins' framework callbacks and frame pacing may be affected. The camera's global rendering histories are not isolated; TAA, DLSS, FSR, auto-exposure, shadows and culling need in-game verification with substantially different camera angles. The plugin does not change your global graphics settings. Do not enable FFXIV VR concurrently with this backend.
-
-The output resolution controls a centered crop with a compensated projection. The world still renders at the game's resolution; reducing the portrait texture size does not proportionally reduce scene rendering cost. The refresh limit is an upper bound, not a promised frame rate. CPU tick duration in diagnostics is not a GPU timing measurement.
-
-Loading, cutscenes and GPose pause capture. Closing/collapsing the portrait pauses capture after a short visibility timeout. Signature or managed capture failures stop rendering and appear in settings / Dalamud logs. Native access failures cannot be made safe by managed exception handling alone.
-
-Release compilation and automated camera-math checks do **not** establish in-game compatibility. See [runtime checks](docs/RUNTIME_VALIDATION.md) before calling a build stable.
-
-The Windows-only `Tests/Rendering` program runs real D3D11 WARP (the software rasterizer) without a game process. It uses the plugin's actual camera and capture code to render two cube views, reads every cropped pixel back, checks main/portrait isolation, and exercises resizing and resource disposal. It also checks hook delegate contracts against the installed FFXIVClientStructs metadata and reproduces delayed command consumption. Output images are written to `artifacts/offline-render`. This tests the reusable D3D11 path, not FFXIV's internal render scheduling or temporal effects.
-
-## Releases
-
-CI builds branches and pull requests, with a separate Windows job for offline rendering regressions. Pushing a `v0.1.0.1`-style tag runs version checks, builds the Release package and creates a prerelease with the ZIP, license, notices and a `pluginmaster.json` asset. A tag matching `main` also updates the repository's `pluginmaster.json` after upload. The custom repository URL is:
-
-`https://raw.githubusercontent.com/zysilm/DynamicPortrait/main/pluginmaster.json`
-
-This URL becomes usable after the first release workflow succeeds. No release has been published by local builds.
-
-Upstream attribution: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[AGPL-3.0-or-later](LICENSE)。渲染实现参考 [FFXIV VR](https://github.com/WesleyLuk90/ffxiv-vr)，相机与 CI 参考 [CombatSimulator](https://github.com/zysilm/FFXIV-CombatSimulator)。详细说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

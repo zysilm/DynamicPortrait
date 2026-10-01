@@ -47,7 +47,8 @@ internal sealed unsafe class CameraOverride
     public void Restore()
     {
         if (scene == null) return;
-        // Valid only within the synchronous Framework tick; never retained across ticks.
+        // Restore on the main thread at matching Present completion or immediately
+        // before the same native camera is updated for the next view.
         scene->ViewMatrix = view;
         scene->Position = position;
         scene->LookAtVector = lookAt;

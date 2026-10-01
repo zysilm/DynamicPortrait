@@ -30,7 +30,7 @@ public sealed class Plugin : IDalamudPlugin
         subjects = new SubjectResolver(objects, targets);
         renderer = new PortraitRenderer(config, subjects, interop, scanner, log, client, conditions, framework);
         windows = new PortraitUi(config, subjects, renderer, Save);
-        commands.AddHandler("/dportrait", new CommandInfo(OnCommand) { HelpMessage = "Dynamic Portrait: settings | on | off | toggle | reset" });
+        commands.AddHandler("/dportrait", new CommandInfo(OnCommand) { HelpMessage = "Dynamic Portrait: settings | on | off | toggle | reset (window) | resetall" });
         pi.UiBuilder.Draw += windows.Draw;
         pi.UiBuilder.OpenConfigUi += windows.OpenSettings;
         pi.UiBuilder.OpenMainUi += windows.OpenSettings;
@@ -45,6 +45,7 @@ public sealed class Plugin : IDalamudPlugin
             case "off": renderer.SetEnabled(false); break;
             case "toggle": config.ShowPortrait = !config.ShowPortrait; break;
             case "reset": windows.ResetWindow(); break;
+            case "resetall": windows.ResetAll(); break;
             default: windows.OpenSettings(); break;
         }
         Save();

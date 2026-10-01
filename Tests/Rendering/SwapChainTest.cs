@@ -44,12 +44,18 @@ internal static unsafe class SwapChainTest
             Program.Check("Actual DXGI GetBuffer capture reads rendered backbuffer RGB", pixels[0] == 51 && pixels[1] == 102 && pixels[2] == 204 && pixels[3] == 255);
             Program.Check("Backbuffer capture uses requested crop size", capture.Read().Width == 128 && capture.Read().Height == 128);
             Program.Check("Backbuffer source has color despite zero alpha", capture.ProbeResult.Contains("alpha=0.000..0.000") && capture.ProbeResult.Contains("maxRGB=0.800"));
+            SwapChainCapture.CaptureRegion(capture, chain, gpu.Context, 127, 93, 320, 240);
+            Program.Check("Portrait capture preserves exact submitted crop dimensions", capture.Read().Width == 127 && capture.Read().Height == 93);
             target->Release(); target = null;
             buffer->Release(); buffer = null;
             Marshal.ThrowExceptionForHR(chain->ResizeBuffers(1, 200, 160, Format.FormatR8G8B8A8Unorm, 0));
             Program.Check("Capture releases backbuffer reference so DXGI resize succeeds", true);
             SwapChainCapture.Capture(capture, chain, gpu.Context, 256, 1);
             Program.Check("Backbuffer reacquired after resize", capture.Read().Width == 160 && capture.Read().Height == 160);
+            var rejectedResize = false;
+            try { SwapChainCapture.CaptureRegion(capture, chain, gpu.Context, 127, 93, 320, 240); }
+            catch (InvalidOperationException) { rejectedResize = true; }
+            Program.Check("Mid-portrait resize is rejected rather than using wrong camera projection", rejectedResize);
         }
         finally
         {

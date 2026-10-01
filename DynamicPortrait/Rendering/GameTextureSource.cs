@@ -1,33 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
-using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using Silk.NET.Direct3D11;
 
 namespace DynamicPortrait.Rendering;
 
 internal static unsafe class GameTextureSource
 {
-    public static void Capture(PortraitTextures textures, int width, int height)
-    {
-        var manager = RenderTargetManager.Instance();
-        var device = Device.Instance();
-        if (manager == null || device == null || manager->ToneAdjustSource == null)
-            throw new InvalidOperationException("Scene target unavailable");
-        textures.Capture((ID3D11Texture2D*)manager->ToneAdjustSource->D3D11Texture2D,
-            (ID3D11DeviceContext*)device->D3D11DeviceContext, width, height);
-    }
-
-    public static bool TrySourceSize(out int width, out int height)
+    public static bool TryBackbufferSize(out int width, out int height)
     {
         width = height = 0;
-        var manager = RenderTargetManager.Instance();
-        if (manager == null || manager->ToneAdjustSource == null) return false;
-        var source = (ID3D11Texture2D*)manager->ToneAdjustSource->D3D11Texture2D;
-        if (source == null) return false;
-        Texture2DDesc description;
-        source->GetDesc(&description);
-        width = (int)description.Width;
-        height = (int)description.Height;
-        return width > 0 && height > 0;
+        var device = Device.Instance();
+        var chain = device == null ? null : device->SwapChain;
+        if (chain == null || chain->DXGISwapChain == null) return false;
+        var dxgi = (Silk.NET.DXGI.IDXGISwapChain*)chain->DXGISwapChain;
+        var iid = new Guid("6f15aaf2-d208-4e89-9ab4-489535d34f9c");
+        ID3D11Texture2D* source = null;
+        System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(dxgi->GetBuffer(0, &iid, (void**)&source));
+        try
+        {
+            Texture2DDesc desc;
+            source->GetDesc(&desc);
+            width = (int)desc.Width;
+            height = (int)desc.Height;
+            return width > 0 && height > 0;
+        }
+        finally { source->Release(); }
     }
+
 }
