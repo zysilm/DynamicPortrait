@@ -1,0 +1,16 @@
+# Runtime validation
+
+Current status: Release compilation and standalone mathematical tests can be performed outside the game. No in-game result is claimed by this checklist.
+
+1. Load the Release DLL with its dependencies. Confirm `/dportrait` opens and capture starts disabled, with no native hooks installed until explicitly started. If a signature fails at start, confirm a visible error and normal game rendering.
+2. In a quiet area, enable the default self/head camera. Confirm the main view remains independently controllable and the portrait faces the character. Check captures and suppressed Presents increase together, and that the window is not a main-view screenshot.
+3. Rotate the normal camera away from the actor; turn/move/emote the actor. Check facial animation, culling, shadows, first-person visibility, apparent animation speed and input response. Observe both views for flashes and ghosts.
+4. Compare graphics settings, especially TAA / DLSS / FSR / dynamic resolution. Record any history contamination or projection mismatch. Do not claim these combinations supported until verified.
+5. Choose current target, lock a character, clear/change target, then make that character disappear. Ensure the locked camera never silently attaches to another object reusing an address. Try missing bones, different races, monsters, mounts and model replacement.
+6. Change angles, orientation, distance, near clip, FOV and smoothing. Resize the window and output texture repeatedly. Check portrait proportions, framing and recoverability with `/dportrait reset`.
+7. Hide, collapse and close the window. Verify capture stops and normal ticks continue. Stop capture; verify CPU/GPU cost returns toward baseline.
+8. Test territory transitions, teleport, GPose, cutscenes, logout and login. No stale pointer reads or stale target portrait should occur. Locked targets must clear on territory changes.
+9. Test plugin unload/reload both idle and rendering, including unload initiated during a framework callback. Verify camera restoration, no remaining hook callbacks, no unreleased SRVs and no crash. Hook cleanup is synchronous to match Dalamud's plugin-scoped service lifetime; texture release retains the backend until active callbacks and subsequent frames finish. A queued capture marker retains a real scene texture binding if the hook is removed. Zero-target unbind markers are forbidden: this client's native routine still reads target[0].
+10. Compare disabled / 15 / 30 / 60 FPS capture at 256 / 512 / 1024 output. Record game build, Dalamud version, CPU, GPU, scene resolution, graphics settings and observed frame time. Use external GPU profiling for GPU measurements.
+
+The single-update/render-only backend, independent temporal histories and independently sized world-render targets remain future renderer work. The initial dual-tick backend must not be described as satisfying those requirements.

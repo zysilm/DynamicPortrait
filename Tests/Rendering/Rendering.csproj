@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <DalamudLibPath Condition="'$(DALAMUD_HOME)' == ''">$(APPDATA)/XIVLauncher/addon/Hooks/dev</DalamudLibPath>
+    <DalamudLibPath Condition="'$(DALAMUD_HOME)' != ''">$(DALAMUD_HOME)</DalamudLibPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Direct3D11" Version="2.21.0" />
+    <Reference Include="FFXIVClientStructs" HintPath="$(DalamudLibPath)/FFXIVClientStructs.dll" />
+    <Reference Include="InteropGenerator.Runtime" HintPath="$(DalamudLibPath)/InteropGenerator.Runtime.dll" />
+    <Compile Include="../../DynamicPortrait/Rendering/PortraitTextures.cs" Link="PortraitTextures.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/OpaqueTexturePass.cs" Link="OpaqueTexturePass.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/SwapChainCapture.cs" Link="SwapChainCapture.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/CaptureCycle.cs" Link="CaptureCycle.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/RenderCommandQueue.cs" Link="RenderCommandQueue.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/NativeCallbacks.cs" Link="NativeCallbacks.cs" />
+    <Compile Include="../../DynamicPortrait/Camera/PortraitCamera.cs" Link="PortraitCamera.cs" />
+    <Compile Include="../../DynamicPortrait/Configuration.cs" Link="Configuration.cs" />
+    <Compile Include="../CameraMath/ConfigurationContract.cs" Link="ConfigurationContract.cs" />
+  </ItemGroup>
+</Project>

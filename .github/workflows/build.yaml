@@ -1,0 +1,55 @@
+name: Build
+on:
+  push:
+    branches: ['**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Install Dalamud
+        run: |
+          mkdir -p "$RUNNER_TEMP/dalamud"
+          curl --fail --location https://goatcorp.github.io/dalamud-distrib/latest.zip -o "$RUNNER_TEMP/dalamud.zip"
+          unzip -q "$RUNNER_TEMP/dalamud.zip" -d "$RUNNER_TEMP/dalamud"
+      - name: Check versions
+        run: python3 .github/scripts/release.py --check
+      - name: Camera math tests
+        run: dotnet run --project Tests/CameraMath/CameraMath.csproj -c Release
+      - name: Build Release
+        run: dotnet build DynamicPortrait/DynamicPortrait.csproj -c Release -p:RestoreLockedMode=true
+        env:
+          DALAMUD_HOME: ${{ runner.temp }}/dalamud
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DynamicPortrait
+          path: DynamicPortrait/bin/Release/DynamicPortrait/latest.zip
+          if-no-files-found: error
+  offline-render:
+    name: Offline D3D11 and native-contract regressions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Install Dalamud metadata
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile "$env:RUNNER_TEMP/dalamud.zip"
+          Expand-Archive "$env:RUNNER_TEMP/dalamud.zip" "$env:RUNNER_TEMP/dalamud"
+      - name: Run without a game process
+        run: dotnet run --project Tests/Rendering/Rendering.csproj -c Release -- artifacts/offline-render
+        env:
+          DALAMUD_HOME: ${{ runner.temp }}/dalamud
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-render-evidence
+          path: artifacts/offline-render/
+          if-no-files-found: error

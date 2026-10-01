@@ -1,0 +1,58 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: dynamicportrait-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify tag and manifest
+        run: python3 .github/scripts/release.py --check --tag "$GITHUB_REF_NAME"
+      - name: Install Dalamud
+        run: |
+          mkdir -p "$RUNNER_TEMP/dalamud"
+          curl --fail --location https://goatcorp.github.io/dalamud-distrib/latest.zip -o "$RUNNER_TEMP/dalamud.zip"
+          unzip -q "$RUNNER_TEMP/dalamud.zip" -d "$RUNNER_TEMP/dalamud"
+          sha256sum "$RUNNER_TEMP/dalamud.zip" > dalamud-distribution.sha256
+      - name: Camera math tests
+        run: dotnet run --project Tests/CameraMath/CameraMath.csproj -c Release
+      - name: Build Release
+        run: dotnet build DynamicPortrait/DynamicPortrait.csproj -c Release -p:RestoreLockedMode=true
+        env:
+          DALAMUD_HOME: ${{ runner.temp }}/dalamud
+      - name: Prepare artifacts
+        run: python3 .github/scripts/release.py --tag "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY"
+      - name: Publish experimental prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" artifacts/DynamicPortrait.zip artifacts/pluginmaster.json LICENSE THIRD_PARTY_NOTICES.md dalamud-distribution.sha256 --clobber
+      - name: Update repository index only for current main
+        run: |
+          cp artifacts/pluginmaster.json "$RUNNER_TEMP/pluginmaster.json"
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Tag is not current main; release asset published, main index unchanged."
+            exit 0
+          fi
+          git checkout -B main origin/main
+          cp "$RUNNER_TEMP/pluginmaster.json" pluginmaster.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pluginmaster.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update plugin index for $GITHUB_REF_NAME [skip ci]"
+            git push origin main
+          fi
