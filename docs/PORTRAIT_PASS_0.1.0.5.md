@@ -1,35 +1,25 @@
-# 0.1.0.5：肖像帧最终输出与全部重置
+# 0.1.0.5: Final portrait output and reset all settings
 
-## 修改依据
+## Motivation
 
-0.1.0.4 的主相机诊断已由用户在游戏内确认显示成功；独立肖像仍黑，
-旧源 ToneAdjustSource 的采样 RGB 为零。之前在 CPU tick 返回时恢复相机，
-也没有覆盖实际异步渲染完成时点。
+The user confirmed working main-view diagnostic output in 0.1.0.4, but independent portrait output remained black. Samples from the old `ToneAdjustSource` were zero RGB. Restoring the camera when the CPU tick returned also failed to account for asynchronous rendering completion.
 
-## 本次实现
+## Implementation
 
-- 肖像使用最终 backbuffer 尺寸计算裁剪和补偿投影；移除旧中间纹理复制代码。
-- pre-UI 队列命令只标记肖像帧，实际复制移到对应 Present 前，随后抑制该帧显示。
-- 肖像 tick 跳过 ProcessUICommandsAlt 的游戏 UI 命令提交；正常 tick 继续提交 UI。
-- 相机快照延续至匹配 Present，或在同一相机下一次原生 SetMatrices 前恢复。
-  不再以 CPU tick 返回作为恢复条件。
-- 未完成肖像阻止再次计算、覆盖编号及裁剪参数；回收 Present 时保留匹配帧编号。
-- 默认选择肖像镜头；启动仍需要显式开启。诊断模式只复制主画面并禁用相机控件。
-- **Reset all settings** 或 `/dportrait resetall` 恢复目标、骨骼、所有镜头参数、
-  捕获设置、窗口大小/位置/交互选项；清除锁定角色及平滑历史，停止渲染，退出诊断模式。
-  已提交的帧按原来的标记完成排空，不删除队列记录，也不立即销毁 GPU 纹理。
-  两个窗口恢复到可见、展开状态。原 `/dportrait reset` 只恢复肖像窗口。
+- Compute the portrait crop and compensated projection using final backbuffer dimensions. Remove the old intermediate-texture copying code.
+- Use the pre-UI queued command only to mark the portrait frame. Copy at its corresponding Present, then suppress that frame's presentation.
+- Skip game UI submission through `ProcessUICommandsAlt` during the portrait tick. Normal ticks still submit UI.
+- Retain the camera snapshot until the matching Present, or restore it before the same camera's next native `SetMatrices`. CPU tick return no longer triggers restoration.
+- A pending portrait prevents recomputing or overwriting its frame ID and crop parameters. Present consumption preserves the matching frame ID.
+- Default to the portrait camera, with explicit activation still required. Diagnostic mode copies only the main view and disables camera controls.
+- **Reset all settings** and `/dportrait resetall` restore the subject, bone, every camera parameter, capture settings, and window size, position, and interaction options. They clear the locked subject and smoothing history, stop rendering, and leave diagnostic mode. Already-submitted frames drain through their existing markers; queue records are retained and GPU textures are not destroyed immediately. Both windows become visible and expanded. `/dportrait reset` continues to reset only the portrait window.
 
-## 验证与限制
+## Validation and limits
 
-Release 构建与离线测试包含：所有公开配置字段恢复默认、帧编号匹配、异步排空、
-每一个原生相机字节在覆盖/恢复后保持一致、后续帧重新快照、DXGI backbuffer 复制、
-裁剪、GPU 状态恢复和 resize。这些不能验证游戏渲染线程实际的相机数据读取时点。
-最终检查：Release 构建 0 警告、0 错误；23 项相机/配置检查与 57 项渲染检查通过。
+Release builds and offline checks cover resetting every public configuration field, matching frame IDs, asynchronous draining, restoring every native camera byte after an override, taking fresh snapshots for subsequent frames, DXGI backbuffer copying, cropping, GPU state restoration, and resize. They cannot establish when the game render thread actually reads camera data.
 
-本版游戏内效果尚未验证，不声称第二镜头或频闪问题已经彻底解决。全 Framework
-tick 仍额外执行；TAA/曝光/阴影历史仍未分离。这些引擎状态可能继续影响主画面。
+Final checks for this version: Release build with zero warnings and errors; 23 camera/configuration checks and 57 rendering checks passed.
 
-游戏内先试默认自身 `j_kao`，改变 Yaw、Pitch、Distance、FOV，再切骨骼和目标。
-检查小窗是否显示独立角度，主画面是否稳定，Captures 和 Suppressed presents 是否配对。
-若黑屏仍存在，日志现在记录最终 backbuffer 的采样及对应帧编号。
+The in-game effect of this version had not yet been verified. It does not claim that the second camera or flicker is fully fixed. An extra full Framework tick still executes, and TAA, exposure, and shadow histories remain shared. These engine states may still affect the main view.
+
+For this version's in-game test, start with the then-default self subject and `j_kao`, change Yaw, Pitch, Distance, and FOV, then switch bones and subjects. Check for an independent portrait angle, a stable main view, and paired Captures/Suppressed presents. If black output persists, logs now include final-backbuffer samples and corresponding frame IDs.

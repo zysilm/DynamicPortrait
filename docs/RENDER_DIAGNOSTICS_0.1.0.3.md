@@ -1,34 +1,21 @@
-# 0.1.0.3：透明画面处理与游戏内诊断
+# 0.1.0.3: Opaque output and in-game diagnostics
 
-用户报告 0.1.0.2 开启后肖像窗口只有半透明 GUI 背景，各计数增长，主画面
-部分文字和 3D 闪烁。这是游戏内失败，前一版离线测试不覆盖该现象。
+The user reported that enabling 0.1.0.2 left only a translucent GUI background in the portrait window, while counters increased and parts of the main view's text and 3D scene flickered. This is an in-game failure that the previous offline tests did not cover.
 
-## 本次变化
+## Changes
 
-- 原先将场景纹理的 Alpha 原样交给 ImGui。场景 Alpha 不一定表示不透明度。
-  现在先复制到插件私有纹理，再通过计算着色器保留 RGB、把 Alpha 设为 1。
-  输出为 RGBA8；FP16 源超过显示范围的值会截断，尚无 HDR 色调映射。
-- 计算阶段恢复原计算着色器、类实例、UAV slot 0 和所有阶段的 SRV 绑定。
-  这包括 D3D11 在缓冲轮转时因读写冲突自动解除的旧肖像 SRV 绑定。
-- 每次显式启动只读回一次捕获纹理，记录采样 Alpha 范围和最大 RGB。
-  该次 GPU 回读可能造成短暂等待；不导出截图或角色信息。
-- 前 30 次提交/捕获/Present 事件记录时间和线程，运行时每 5 秒汇总计数。
-- 默认使用 `Diagnostic: capture main view only`：只捕获当前游戏相机，
-  不改相机、不额外 tick、不抑制 Present。这个会话选项不保存到配置。
-  停止渲染后才能切换；取消勾选才使用原实验性第二相机。
+- Previously, scene alpha was passed directly to ImGui. Scene alpha does not necessarily represent opacity. The plugin now copies into a private texture and uses a compute shader to preserve RGB while setting alpha to one. Output is RGBA8; FP16 values outside the display range are clipped, with no HDR tone mapping yet.
+- The compute pass restores the original compute shader, class instances, UAV slot zero, and SRV bindings in every shader stage. This includes old portrait SRVs automatically unbound by D3D11 because of read/write conflicts during buffer rotation.
+- Each explicit start reads back the captured texture once and logs its sampled alpha range and maximum RGB. This readback can briefly stall the GPU; it exports no screenshot or character information.
+- The first 30 submission, capture, and Present events log their time and thread. Runtime counters are summarized every five seconds.
+- This version defaults to **Diagnostic: capture main view only**. It captures the current game camera without changing it, adding a tick, or suppressing Present. This session option is not saved. Stop rendering before changing it; clearing it selects the experimental second camera.
 
-## 验证边界
+## Validation limits
 
-离线 D3D11 WARP 回归验证零 Alpha 转不透明、RGB 保留、源纹理不变、绑定恢复、
-诊断捕获完成不抑制 Present。游戏内透明问题的确切原因仍待像素日志确认。
-主画面频闪也尚未定位修复；第二相机共用引擎状态和时序仍须验证。
+Offline D3D11 WARP regression checks cover zero-alpha conversion to opaque output, RGB preservation, an unchanged source texture, binding restoration, and diagnostic capture without Present suppression. Pixel logs are still needed to determine the cause of the in-game transparency. Main-view flicker is not yet resolved; shared engine state and second-camera timing still need validation.
 
-## 游戏内步骤
+## In-game steps
 
-重载 0.1.0.3，保留默认诊断模式，开启渲染约 5 秒后停止。
-预期小窗显示主画面中央裁剪，Portrait ticks 和 Suppressed presents 保持 0，
-Captures 和 Main-chain presents 增长。若仍无画面或主画面仍闪，应先检查日志，
-不要把问题归因于第二相机或认为测试通过。
+Reload 0.1.0.3, keep diagnostic mode selected, enable rendering for approximately five seconds, and stop it. The expected result is a center crop of the main view. Portrait ticks and Suppressed presents remain zero; Captures and Main-chain presents increase. If the image is missing or the main view flickers, investigate logs before attributing the problem to the second camera or marking the test successful.
 
-只有主相机复制稳定后，再比较取消诊断模式的第二相机行为。正常复制不代表
-第二相机成功；离线测试截图也不是游戏截图。
+Only compare second-camera behavior after main-view copying is stable. A working main-view copy does not prove that the second camera works. Offline test images are not game screenshots.

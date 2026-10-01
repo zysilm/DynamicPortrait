@@ -1,40 +1,40 @@
 # Dynamic Portrait
 
-FFXIV Dalamud 插件，在独立小窗中显示跟随角色骨骼的镜头。可以选择角色与骨骼，调整角度、距离、FOV、平滑和窗口大小。目前仍处于实验阶段。
+An experimental FFXIV Dalamud plugin that displays a camera following a character bone in a separate in-game window. Choose a character and bone, and adjust camera angles, distance, FOV, smoothing, and window size.
 
-## 安装
+## Installation
 
-在 `/xlsettings` → **Experimental** → **Custom Plugin Repositories** 中添加：
+In `/xlsettings`, open **Experimental** → **Custom Plugin Repositories** and add:
 
 ```text
 https://raw.githubusercontent.com/zysilm/DynamicPortrait/main/pluginmaster.json
 ```
 
-保存后，在 `/xlplugins` 中搜索 **Dynamic Portrait** 并安装。
+Save, then search for **Dynamic Portrait** in `/xlplugins` and install it.
 
-## 使用
+## Usage
 
-输入 `/dportrait` 打开设置，勾选 **Render portrait** 开启。每次加载插件后渲染默认关闭。
+Use `/dportrait` to open settings and enable **Render portrait**. Rendering starts disabled whenever the plugin loads.
 
-默认跟随自身的 **Chest**（`j_sebo_c`），输出尺寸默认 1024，上限 4096；默认窗口大小为 340 × 380。诊断模式只复制主画面，相机控制在该模式下禁用。
+The default subject is your character's **Chest** (`j_sebo_c`). The output's longest edge defaults to 1024 pixels and supports up to 4096; the default window size is 340 × 380. Diagnostic mode copies the main view and disables camera controls.
 
-- `/dportrait on` / `off`：开启 / 停止渲染。
-- `/dportrait toggle`：显示 / 隐藏小窗。
-- `/dportrait reset`：重置小窗。
-- `/dportrait resetall` 或 **Reset all settings**：恢复全部默认设置、清除锁定角色并停止渲染。
+- `/dportrait on` / `/dportrait off`: start or stop rendering.
+- `/dportrait toggle`: show or hide the portrait window.
+- `/dportrait reset`: reset the portrait window.
+- `/dportrait resetall` or **Reset all settings**: restore every default, clear the locked subject, and stop rendering.
 
-## 构建与发布
+## Build and release
 
-需要 .NET 10 和 Dalamud API 15。
+Requires .NET 10 and Dalamud API 15.
 
 ```powershell
 dotnet build DynamicPortrait/DynamicPortrait.csproj -c Release
 ```
 
-DLL 位于 `DynamicPortrait/bin/Release/DynamicPortrait.dll`。Windows 默认使用 `%APPDATA%/XIVLauncher/addon/Hooks/dev`；其他位置可设置 `DALAMUD_HOME`。
+The DLL is at `DynamicPortrait/bin/Release/DynamicPortrait.dll`. On Windows, the default Dalamud directory is `%APPDATA%/XIVLauncher/addon/Hooks/dev`; set `DALAMUD_HOME` to use another location.
 
-与 CombatSimulator 一样，推送 `main` 自动构建并发布 `v版本号`，更新自定义仓库索引；发布新版本前同步更新 csproj 与插件清单中的版本号。
+Following CombatSimulator's workflow, pushes to `main` build and publish a `v<version>` release and update the custom repository index. Update the version in both the project file and plugin manifest before releasing a new version. Documentation-only commits can use `[skip ci]`.
 
-## 许可
+## License
 
-[AGPL-3.0-or-later](LICENSE)。渲染实现参考 [FFXIV VR](https://github.com/WesleyLuk90/ffxiv-vr)，相机与 CI 参考 [CombatSimulator](https://github.com/zysilm/FFXIV-CombatSimulator)。详细说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[AGPL-3.0-or-later](LICENSE). Rendering references [FFXIV VR](https://github.com/WesleyLuk90/ffxiv-vr); camera and CI references [CombatSimulator](https://github.com/zysilm/FFXIV-CombatSimulator). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
