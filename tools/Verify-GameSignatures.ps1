@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$GameExe)
+param([Parameter(Mandatory=$true)][string]$GameExe, [switch]$RenderCandidates)
 $ErrorActionPreference = 'Stop'
 # Read-only PE scan. This never opens the game process or writes game files.
 Add-Type -TypeDefinition @'
@@ -37,9 +37,19 @@ for ($i=0; $i -lt $sections; $i++) {
 if ($length -le 0) { throw 'No .text section' }
 $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../DynamicPortrait/Rendering/PortraitRenderer.cs') -Raw
 $signatureMatches = [regex]::Matches($source, 'scanner\.ScanText\("([^"]+)"\)')
+$entries = @($signatureMatches | ForEach-Object { @{ Name = 'Portrait'; Signature = $_.Groups[1].Value } })
+if ($RenderCandidates) {
+    # Candidates from local FFXIVClientStructs. Resolving their signatures does
+    # not authorize invoking them or establish a render-only pass boundary.
+    $entries += @(
+        @{ Name = 'RenderManager.Render'; Signature = '40 53 57 41 54 41 55 48 83 EC ?? 65 48 8B 04 25' }
+        @{ Name = 'RenderManager.RenderView'; Signature = 'E8 ?? ?? ?? ?? FF C5 49 83 C6 ?? BA' }
+        @{ Name = 'TaskManager.ExecuteAllTasks'; Signature = 'E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ?? 48 85 C9 74 ?? F3 0F 10 8B' }
+    )
+}
 $failed = $false
-foreach ($match in $signatureMatches) {
-    $sig = $match.Groups[1].Value
+foreach ($entry in $entries) {
+    $sig = $entry.Signature
     $hits = [PortraitSignatureScan]::Find($data, $sig, $start, $length)
     $targets = @($hits | ForEach-Object {
         $target = $_ - $start + $rva
@@ -49,11 +59,11 @@ foreach ($match in $signatureMatches) {
         $target
     } | Select-Object -Unique)
     if ($targets.Count -ne 1) {
-        Write-Output "FAIL $($hits.Count) matches, $($targets.Count) destinations: $sig"
+        Write-Output "FAIL $($entry.Name): $($hits.Count) matches, $($targets.Count) destinations: $sig"
         $failed = $true
     } else {
-        Write-Output ('PASS RVA 0x{0:X} ({1} call sites): {2}' -f $targets[0], $hits.Count, $sig)
+        Write-Output ('PASS {0}: RVA 0x{1:X} ({2} sites): {3}' -f $entry.Name, $targets[0], $hits.Count, $sig)
     }
 }
 if ($failed) { exit 1 }
-Write-Output "$($signatureMatches.Count) signatures resolved to unambiguous destinations. This verifies locations, not runtime behavior or struct layouts."
+Write-Output "$($entries.Count) signatures resolved to unambiguous destinations. This verifies locations, not runtime behavior or struct layouts."
