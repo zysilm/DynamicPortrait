@@ -108,42 +108,82 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         if (resetSettingsWindow)
         {
             ImGui.SetNextWindowPos(new(430, 100), ImGuiCond.Always);
-            ImGui.SetNextWindowSize(new(510, 720), ImGuiCond.Always);
+            ImGui.SetNextWindowSize(new(560, 640), ImGuiCond.Always);
             ImGui.SetNextWindowCollapsed(false, ImGuiCond.Always);
             resetSettingsWindow = false;
         }
-        ImGui.SetNextWindowSize(new(510, 720), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new(560, 640), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSizeConstraints(new(460, 400), new(4096, 4096));
         if (!ImGui.Begin("Dynamic Portrait settings###DynamicPortrait.Settings", ref settingsOpen)) { ImGui.End(); return; }
         try
         {
-            ImGui.TextWrapped("Experimental dual-view renderer. Each portrait update runs an additional game tick. Runtime compatibility and performance require in-game testing.");
-            var enabled = renderer.Enabled;
             ImGui.BeginDisabled(!renderer.Ready);
-            if (ImGui.Checkbox("Render portrait", ref enabled)) renderer.SetEnabled(enabled);
+            if (ImGui.Button(renderer.Enabled ? "Stop rendering" : "Start rendering"))
+            {
+                if (!renderer.Enabled) { config.ShowPortrait = true; dirty = true; }
+                renderer.SetEnabled(!renderer.Enabled);
+            }
             ImGui.EndDisabled();
-            ImGui.BeginDisabled(renderer.Enabled);
-            var mainViewOnly = renderer.MainViewOnly;
-            if (ImGui.Checkbox("Diagnostic: capture main view only", ref mainViewOnly)) renderer.SetMainViewOnly(mainViewOnly);
-            ImGui.EndDisabled();
-            ImGui.TextWrapped(mainViewOnly
-                ? "Diagnostic mode: copies the final main display before Present, including game UI. No second camera or extra tick."
-                : "Portrait camera: follows the selected bone. Runtime behavior still requires in-game verification.");
-            if (ImGui.Button("Reset all settings")) ResetAll();
-            ImGui.TextWrapped("Reset restores all defaults, clears the locked subject and stops rendering.");
+            ImGui.SameLine();
             dirty |= ImGui.Checkbox("Show portrait window", ref config.ShowPortrait);
             ImGui.TextWrapped(renderer.Status);
             if (renderer.Fault != null) ImGui.TextWrapped($"Error: {renderer.Fault}");
+            if (renderer.MainViewOnly) ImGui.TextWrapped("Main-view diagnostic mode is active. Camera controls are disabled.");
             ImGui.Separator();
+            var contentVisible = ImGui.BeginChild("settings-content", new Vector2(0, -ImGui.GetFrameHeightWithSpacing() - ImGui.GetStyle().ItemSpacing.Y));
+            try
+            {
+                if (contentVisible && ImGui.BeginTabBar("portrait-settings-tabs"))
+                {
+                    try
+                    {
+                        if (ImGui.BeginTabItem("Camera"))
+                        {
+                            try { DrawCameraSettings(); }
+                            finally { ImGui.EndTabItem(); }
+                        }
+                        if (ImGui.BeginTabItem("Output"))
+                        {
+                            try { DrawOutputSettings(); }
+                            finally { ImGui.EndTabItem(); }
+                        }
+                        if (ImGui.BeginTabItem("Window"))
+                        {
+                            try { DrawWindowSettings(); }
+                            finally { ImGui.EndTabItem(); }
+                        }
+                        if (ImGui.BeginTabItem("Diagnostics"))
+                        {
+                            try { DrawDiagnostics(); }
+                            finally { ImGui.EndTabItem(); }
+                        }
+                    }
+                    finally { ImGui.EndTabBar(); }
+                }
+            }
+            finally { ImGui.EndChild(); }
+            ImGui.Separator();
+            if (ImGui.Button("Reset all settings")) ResetAll();
+            Help("Restore every default, clear the locked subject, and stop rendering.");
+        }
+        finally { ImGui.End(); }
+        if (dirty) config.Normalize();
+    }
 
-            ImGui.BeginDisabled(mainViewOnly);
+    private void DrawCameraSettings()
+    {
+        ImGui.BeginDisabled(renderer.MainViewOnly);
+        ImGui.PushItemWidth(-160);
+        try
+        {
+            ImGui.TextUnformatted("Subject and bone");
             var subject = (int)config.Subject;
             if (ImGui.Combo("Subject", ref subject, "Self\0Current target\0Locked character\0"))
             { config.Subject = (SubjectMode)subject; dirty = true; }
             if (ImGui.Button("Lock current target") && subjects.LockTarget())
             { config.Subject = SubjectMode.Locked; dirty = true; }
             ImGui.SameLine(); ImGui.TextUnformatted(subjects.LockedName);
-            dirty |= ImGui.InputText("Bone name", ref config.BoneName, 128);
-            if (ImGui.BeginCombo("Available bones", config.BoneName))
+            if (ImGui.BeginCombo("Bone", config.BoneName))
             {
                 ImGui.InputText("Filter", ref boneFilter, 128);
                 foreach (var bone in subjects.Bones)
@@ -156,41 +196,101 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             if (ImGui.Button("Neck")) { config.BoneName = "j_kubi"; dirty = true; }
             ImGui.SameLine();
             if (ImGui.Button("Chest")) { config.BoneName = "j_sebo_c"; dirty = true; }
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.TextUnformatted("Tracking");
+            dirty |= ImGui.Checkbox("Lock bone in frame", ref config.LockBone);
+            Help("Follow the bone's position and rotation immediately. Smoothing and orientation apply only when unlocked.");
+            ImGui.BeginDisabled(config.LockBone);
             var orientation = (int)config.Orientation;
             if (ImGui.Combo("Orientation", ref orientation, "Character facing\0Bone rotation\0World fixed\0"))
             { config.Orientation = (OrientationMode)orientation; dirty = true; }
+            dirty |= ImGui.SliderFloat("Smoothing", ref config.Smoothing, 0, 1, "%.2f s");
+            ImGui.EndDisabled();
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.TextUnformatted("Framing");
             dirty |= ImGui.SliderFloat("Yaw", ref config.Yaw, -180, 180, "%.1f deg");
             dirty |= ImGui.SliderFloat("Pitch", ref config.Pitch, -85, 85, "%.1f deg");
             dirty |= ImGui.SliderFloat("Roll", ref config.Roll, -180, 180, "%.1f deg");
             dirty |= ImGui.SliderFloat("Distance", ref config.Distance, 0.1f, 10, "%.2f");
             dirty |= ImGui.SliderFloat("Vertical FOV", ref config.FieldOfView, 5, 100, "%.1f deg");
             dirty |= ImGui.DragFloat3("Look-at offset", ref config.Offset, 0.01f, -10, 10);
-            dirty |= ImGui.SliderFloat("Near clip", ref config.NearClip, 0.005f, 0.5f, "%.3f");
-            dirty |= ImGui.SliderFloat("Smoothing", ref config.Smoothing, 0, 1, "%.2f s");
-            ImGui.EndDisabled();
-            ImGui.Separator();
+            Help("Offsets use bone space while locked. Distance, angles, and FOV remain adjustable.");
+            if (ImGui.CollapsingHeader("Advanced camera settings"))
+            {
+                dirty |= ImGui.InputText("Bone name", ref config.BoneName, 128);
+                dirty |= ImGui.SliderFloat("Near clip", ref config.NearClip, 0.005f, 0.5f, "%.3f");
+            }
+        }
+        finally { ImGui.PopItemWidth(); ImGui.EndDisabled(); }
+    }
+
+    private void DrawOutputSettings()
+    {
+        ImGui.PushItemWidth(-160);
+        try
+        {
             dirty |= ImGui.SliderInt("Refresh limit", ref config.RefreshRate, 1, 60, "%d FPS");
             dirty |= ImGui.SliderInt("Output long edge", ref config.Resolution, 128, 4096, "%d px");
             ImGui.TextWrapped("Output is a centered crop. The additional scene render still uses the game's resolution.");
-            dirty |= ImGui.Checkbox("Lock position and size", ref config.LockWindow);
-            dirty |= ImGui.Checkbox("Hide title bar", ref config.Borderless);
-            dirty |= ImGui.Checkbox("Click through", ref config.ClickThrough);
-            if (ImGui.Button("Reset window")) ResetWindow();
-            ImGui.TextWrapped("Use /dportrait to reopen settings; /dportrait off stops rendering.");
-            if (ImGui.CollapsingHeader("Diagnostics"))
-            {
-                var texture = renderer.Texture;
-                ImGui.TextUnformatted($"Normal ticks: {renderer.NormalTicks} | Portrait ticks: {renderer.PortraitTicks}");
-                ImGui.TextUnformatted($"Captures: {renderer.CapturedFrames} | Suppressed presents: {renderer.SkippedPresents}");
-                ImGui.TextUnformatted($"UI draws: {renderer.UiDraws} | During portrait submission: {renderer.UiDrawsDuringPortrait}");
-                ImGui.TextUnformatted($"Main-chain presents: {renderer.MainPresents}");
-                ImGui.TextUnformatted($"Last portrait tick: {renderer.LastPortraitMilliseconds:F2} ms (CPU wall time)");
-                ImGui.TextUnformatted($"Texture: {texture.Width} x {texture.Height}");
-                ImGui.TextWrapped($"Scene pixels: {renderer.PixelProbe}");
-                ImGui.TextWrapped("Reference: WesleyLuk90/ffxiv-vr. License: AGPL-3.0-or-later.");
-            }
         }
-        finally { ImGui.End(); }
-        if (dirty) config.Normalize();
+        finally { ImGui.PopItemWidth(); }
+    }
+
+    private void DrawWindowSettings()
+    {
+        dirty |= ImGui.Checkbox("Lock position and size", ref config.LockWindow);
+        dirty |= ImGui.Checkbox("Hide title bar", ref config.Borderless);
+        dirty |= ImGui.Checkbox("Click through", ref config.ClickThrough);
+        ImGui.TextUnformatted($"Size: {config.WindowSize.X:F0} × {config.WindowSize.Y:F0}");
+        ImGui.TextWrapped("Drag the portrait window to move it; drag an edge or corner to resize it.");
+        if (ImGui.Button("Reset window")) ResetWindow();
+        ImGui.TextWrapped("Use /dportrait to reopen settings; /dportrait off stops rendering.");
+    }
+
+    private void DrawDiagnostics()
+    {
+        ImGui.BeginDisabled(renderer.Enabled);
+        var mainViewOnly = renderer.MainViewOnly;
+        if (ImGui.Checkbox("Capture main view only", ref mainViewOnly)) renderer.SetMainViewOnly(mainViewOnly);
+        ImGui.EndDisabled();
+        ImGui.TextWrapped("Stop rendering before changing modes. Main-view capture includes game UI and uses no second camera or extra tick.");
+        ImGui.Separator();
+        var texture = renderer.Texture;
+        if (ImGui.BeginTable("capture-statistics", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        {
+            try
+            {
+                Stat("Normal ticks", renderer.NormalTicks.ToString());
+                Stat("Portrait ticks", renderer.PortraitTicks.ToString());
+                Stat("Captures", renderer.CapturedFrames.ToString());
+                Stat("Suppressed presents", renderer.SkippedPresents.ToString());
+                Stat("UI draws", renderer.UiDraws.ToString());
+                Stat("UI draws during portrait", renderer.UiDrawsDuringPortrait.ToString());
+                Stat("Main-chain presents", renderer.MainPresents.ToString());
+                Stat("Portrait tick (CPU)", $"{renderer.LastPortraitMilliseconds:F2} ms");
+                Stat("Texture", $"{texture.Width} x {texture.Height}");
+            }
+            finally { ImGui.EndTable(); }
+        }
+        ImGui.TextWrapped($"Scene pixels: {renderer.PixelProbe}");
+        ImGui.Separator();
+        ImGui.TextWrapped("Experimental dual-view renderer. Each portrait update runs an additional game tick. Runtime compatibility and performance require in-game testing.");
+        ImGui.TextWrapped("Reference: WesleyLuk90/ffxiv-vr. License: AGPL-3.0-or-later.");
+    }
+
+    private static void Help(string text)
+    {
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(text);
+    }
+
+    private static void Stat(string name, string value)
+    {
+        ImGui.TableNextRow();
+        ImGui.TableSetColumnIndex(0);
+        ImGui.TextUnformatted(name);
+        ImGui.TableSetColumnIndex(1);
+        ImGui.TextUnformatted(value);
     }
 }

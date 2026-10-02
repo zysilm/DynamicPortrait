@@ -12,7 +12,7 @@ void Check(string name, bool condition)
 }
 bool Near(float a, float b, float epsilon = 0.0001f) => MathF.Abs(a - b) < epsilon;
 
-var config = new Configuration { Offset = Vector3.Zero, Pitch = 0, Smoothing = 0, Distance = 2 };
+var config = new Configuration { LockBone = false, Offset = Vector3.Zero, Pitch = 0, Smoothing = 0, Distance = 2 };
 var bone = new BonePose(new(10, 2, 5), Quaternion.Identity, 0);
 var solver = new PortraitCamera();
 var pose = solver.Solve(bone, config, 0.1f);
@@ -48,7 +48,7 @@ foreach (var dimensions in new[] { (1920, 1080, 512, 1f), (3840, 2160, 1024, 2f)
     Check($"Portrait horizontal proportions survive centered crop {dimensions}", Near(right.X / right.W * w / cw, 1));
 }
 
-config = new Configuration { Offset = Vector3.Zero, Pitch = 0, Smoothing = 0.1f };
+config = new Configuration { LockBone = false, Offset = Vector3.Zero, Pitch = 0, Smoothing = 0.1f };
 solver.Reset();
 solver.Solve(bone, config, 0.1f);
 var shifted = solver.Solve(bone with { Position = bone.Position + Vector3.UnitX }, config, 0.1f * MathF.Log(2));
@@ -63,6 +63,60 @@ var reversed = solver.Solve(bone, config, 0.1f * MathF.Log(2));
 var reversalView = PortraitCamera.View(reversed);
 Check("180-degree orbit reversal cannot create a singular view", float.IsFinite(reversalView.M11 + reversalView.M22 + reversalView.M33)
     && Vector3.DistanceSquared(reversed.Eye, reversed.Target) >= 0.0001f);
+
+// A bone is stabilized only if all its rigid landmarks, not just its origin,
+// retain the same screen coordinates under arbitrary animated rigid motion.
+var landmarks = new[] { Vector3.Zero, new Vector3(-0.1f, 0.1f, 0.08f), new Vector3(0.1f, 0.1f, 0.08f), new Vector3(0, -0.15f, 0.05f) };
+Vector3 ScreenPoint(Vector3 point, BonePose animated, CameraPose solved)
+{
+    var world = animated.Position + Vector3.Transform(point, animated.Rotation);
+    var clip = Vector4.Transform(new Vector4(world, 1), PortraitCamera.View(solved)
+        * PortraitCamera.Projection(solved, 1920, 1080, 512, 512));
+    return new Vector3(clip.X, clip.Y, clip.Z) / clip.W;
+}
+var legacyConfig = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"BoneName\":\"j_kao\",\"Smoothing\":0.08}",
+    new System.Text.Json.JsonSerializerOptions { IncludeFields = true });
+Check("Bone locking is enabled for fresh and legacy configurations", new Configuration().LockBone && legacyConfig is { LockBone: true, BoneName: "j_kao" });
+foreach (var pitch in new[] { -85f, -5.6f, 85f })
+{
+    config = new Configuration { LockBone = true, Offset = new(0.03f, 0.12f, -0.02f), Pitch = pitch, Yaw = 35, Roll = 23, Smoothing = 2 };
+    solver.Reset();
+    var neutral = new BonePose(Vector3.Zero, Quaternion.Identity, 0);
+    var neutralCamera = solver.Solve(neutral, config, 0.01f);
+    var expected = landmarks.Select(point => ScreenPoint(point, neutral, neutralCamera)).ToArray();
+    var stable = true;
+    for (var frame = 0; frame < 120; frame++)
+    {
+        var t = frame * 0.1f;
+        var animated = new BonePose(new(t * 2, MathF.Sin(t * 3) * 0.2f, MathF.Cos(t)),
+            Quaternion.CreateFromYawPitchRoll(t, MathF.Sin(t) * 1.5f, MathF.Cos(t * 2)), -t);
+        // Alternating quaternion signs encode the same orientation. Frame time
+        // and unlocked orientation settings must not affect a strict lock.
+        if (frame % 2 == 0) animated = animated with { Rotation = -animated.Rotation };
+        config.Orientation = (OrientationMode)(frame % 3);
+        var lockedCamera = solver.Solve(animated, config, frame % 2 == 0 ? 0 : 1f / 15);
+        stable &= landmarks.Select((point, i) => Vector3.Distance(ScreenPoint(point, animated, lockedCamera), expected[i]) < 0.0002f).All(value => value);
+    }
+    Check($"Rigid head landmarks stay fixed during animated translation/rotation at pitch {pitch}", stable);
+}
+config = new Configuration { LockBone = true, Offset = Vector3.Zero, Pitch = 0, Smoothing = 2 };
+solver.Reset();
+var headPose = new BonePose(Vector3.Zero, Quaternion.Identity, 0);
+var heldCamera = solver.Solve(headPose, config, 0);
+Check("Other joints remain free to move relative to the locked head", Vector3.Distance(
+    ScreenPoint(new(-0.2f, -0.3f, 0), headPose, heldCamera), ScreenPoint(new(0.2f, -0.3f, 0), headPose, heldCamera)) > 0.1f);
+config.Yaw = 45;
+config.FieldOfView = 55;
+var reframed = solver.Solve(headPose, config, 0);
+Check("Strict lock applies framing controls immediately", Vector3.Distance(reframed.Eye, heldCamera.Eye) > 0.1f
+    && Near(reframed.Fov, 55 * MathF.PI / 180));
+config.LockBone = false;
+config.Orientation = OrientationMode.World;
+config.Smoothing = 0.1f;
+solver.Reset();
+solver.Solve(headPose, config, 0.1f);
+var followed = solver.Solve(headPose with { Position = Vector3.UnitX }, config, 0.1f * MathF.Log(2));
+Check("Unlocking restores smooth tracking", Near(followed.Target.X, 0.5f));
 
 config.Distance = float.NaN;
 config.FieldOfView = float.PositiveInfinity;

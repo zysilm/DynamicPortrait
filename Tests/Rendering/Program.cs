@@ -36,6 +36,7 @@ internal static unsafe class Program
 
         using var gpu = new OffscreenGpu();
         SwapChainTest.Run(gpu);
+        TestBoneLock(gpu, output);
         using var captured = new PortraitTextures();
         var bone = new BonePose(Vector3.Zero, Quaternion.Identity, 0);
         var camera = new PortraitCamera();
@@ -123,6 +124,47 @@ internal static unsafe class Program
         var b = canonical.GetMethod("Invoke")!;
         Check($"ABI {gameType.Name}.{name} exactly matches host metadata", a.ReturnType == b.ReturnType
             && a.GetParameters().Select(p => p.ParameterType).SequenceEqual(b.GetParameters().Select(p => p.ParameterType)));
+    }
+
+    private static void TestBoneLock(OffscreenGpu gpu, string output)
+    {
+        var camera = new PortraitCamera();
+        var settings = new Configuration { LockBone = true, Distance = 1.5f, Pitch = -5.6f, Yaw = 15, Roll = 5, FieldOfView = 45, Smoothing = 2 };
+        using var captured = new PortraitTextures();
+        byte[]? reference = null;
+        foreach (var (position, rotation) in new[]
+        {
+            (Vector3.Zero, Quaternion.Identity),
+            (new Vector3(2, 4, -1), Quaternion.CreateFromYawPitchRoll(0.9f, 0.35f, -0.2f)),
+            (new Vector3(-3, 0.2f, 2), Quaternion.CreateFromYawPitchRoll(-1.8f, -0.7f, 0.8f)),
+        })
+        {
+            var bone = new BonePose(position, rotation, -1);
+            var solved = camera.Solve(bone, settings, 1f / 60);
+            // The cube represents a rigid head attached to the animated bone.
+            // Transform it into world space, then use the actual camera solver
+            // and GPU capture code. Smoothing would make the head drift here.
+            var world = Matrix4x4.CreateFromQuaternion(rotation) * Matrix4x4.CreateTranslation(position);
+            gpu.Draw(world * PortraitCamera.View(solved) * PortraitCamera.Projection(solved, 640, 480, 256, 256));
+            captured.Capture(gpu.Scene, gpu.Context, 256, 256);
+            var pixels = gpu.ReadView(captured.Read().Handle);
+            Check($"Locked animated head rasterizes visible geometry at {position}", HasGeometry(pixels));
+            if (reference == null)
+            {
+                reference = pixels;
+                Png.Write(Path.Combine(output, "bone-lock-neutral.png"), 256, 256, pixels);
+            }
+            else
+            {
+                var changed = 0;
+                for (var i = 0; i < pixels.Length; i += 4)
+                    if (Math.Abs(pixels[i] - reference[i]) > 2 || Math.Abs(pixels[i + 1] - reference[i + 1]) > 2
+                        || Math.Abs(pixels[i + 2] - reference[i + 2]) > 2) changed++;
+                // Allow a few edge pixels for floating-point rasterization.
+                Check($"Animated bone translation/rotation preserves GPU portrait at {position}", changed <= 32);
+                Png.Write(Path.Combine(output, $"bone-lock-moved-{position.X:F0}.png"), 256, 256, pixels);
+            }
+        }
     }
 
     private static void TestDelayedCommands()

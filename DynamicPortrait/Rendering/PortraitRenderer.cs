@@ -49,6 +49,13 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     private double lastCapture = -1;
     private double lastPoseTime;
     private ulong lastSubject;
+    private nint lastSubjectAddress;
+    private string lastBone = "";
+    private OrientationMode lastOrientation;
+    private bool lastLockBone;
+    private ulong submittedSubject;
+    private nint submittedSubjectAddress;
+    private bool poseReady;
     private CameraPose pose;
     private int sourceWidth, sourceHeight, cropWidth, cropHeight;
     private volatile bool captureQueued, cameraApplied;
@@ -129,7 +136,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             visibility.Enable();
             tick.Enable();
             hooksReady = true;
-            log.Info("DynamicPortrait 0.1.0.7 native pipeline initialized; portrait completion captures the final backbuffer before suppressed Present.");
+            log.Info("DynamicPortrait native pipeline initialized; portrait completion captures the final backbuffer before suppressed Present.");
         }
         catch (Exception e)
         {
@@ -248,14 +255,13 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                         Fail(new InvalidOperationException("Render-thread capture timed out. Pending commands remain registered until consumed; please report the diagnostics."));
                     if (!cycle.HasPending && CanCapture() && clock.Elapsed.TotalSeconds - lastCapture >= 1.0 / config.RefreshRate)
                     {
-                        SubjectReady = subjects.TryRead(config, out var bone);
+                        SubjectReady = subjects.TryRead(config, out _);
                         Status = subjects.Status;
                         if (SubjectReady && GameTextureSource.TryBackbufferSize(out sourceWidth, out sourceHeight))
                         {
                             var now = clock.Elapsed.TotalSeconds;
-                            if (lastSubject != subjects.CurrentId) { solver.Reset(); lastSubject = subjects.CurrentId; }
-                            pose = solver.Solve(bone, config, (float)(now - lastPoseTime));
-                            lastPoseTime = now;
+                            submittedSubject = subjects.CurrentId;
+                            submittedSubjectAddress = subjects.CurrentAddress;
                             (cropWidth, cropHeight) = PortraitCamera.Crop(sourceWidth, sourceHeight, resolution, aspect);
                             render = cycle.TryBegin(now, out var nextId);
                             if (render) { captureId = nextId; lastCapture = now; }
@@ -267,7 +273,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 {
                     submittedPortrait = true;
                     var started = Stopwatch.GetTimestamp();
-                    cameraApplied = captureQueued = false;
+                    cameraApplied = captureQueued = poseReady = false;
                     inPortrait = true;
                     bool result;
                     try
@@ -314,13 +320,36 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         {
             if (cameraOverride.Matches(camera)) cameraOverride.Restore();
             matrices!.Original(camera, ptr);
-            if (!inPortrait || stopping) return;
+            if (!inPortrait || stopping || !Enabled) return;
             try
             {
                 var manager = SceneCameraManager.Instance();
                 if (manager == null || manager->CameraIndex is < 0 or >= 14) return;
                 var current = manager->CurrentCamera;
                 if (current == null || current->RenderCamera == null || (nint)current->RenderCamera != camera) return;
+                if (!poseReady)
+                {
+                    // Resolve again at camera submission, after the original native
+                    // update, instead of framing the pose from before this tick.
+                    if (!subjects.TryRead(config, out var bone) || subjects.CurrentId != submittedSubject
+                        || subjects.CurrentAddress != submittedSubjectAddress)
+                        throw new InvalidOperationException("Portrait subject became unavailable or changed before camera submission.");
+                    if (lastSubject != subjects.CurrentId || lastSubjectAddress != subjects.CurrentAddress
+                        || lastBone != config.BoneName || lastOrientation != config.Orientation || lastLockBone != config.LockBone)
+                    {
+                        solver.Reset();
+                        lastSubject = subjects.CurrentId;
+                        lastSubjectAddress = subjects.CurrentAddress;
+                        lastBone = config.BoneName;
+                        lastOrientation = config.Orientation;
+                        lastLockBone = config.LockBone;
+                    }
+                    var now = clock.Elapsed.TotalSeconds;
+                    pose = solver.Solve(bone, config, (float)(now - lastPoseTime));
+                    lastPoseTime = now;
+                    poseReady = true;
+                    Status = subjects.Status;
+                }
                 cameraOverride.Apply(current, pose, sourceWidth, sourceHeight, cropWidth, cropHeight);
                 cameraApplied = true;
                 TraceEvent("portrait matrices applied");

@@ -13,7 +13,9 @@ public sealed class PortraitCamera
 
     public CameraPose Solve(BonePose bone, Configuration config, float elapsed)
     {
-        var reference = config.Orientation switch
+        // Strict locking keeps the entire camera rig in bone space. World-space
+        // smoothing would introduce tracking lag during running and animation.
+        var reference = config.LockBone ? bone.Rotation : config.Orientation switch
         {
             OrientationMode.Bone => bone.Rotation,
             OrientationMode.World => Quaternion.Identity,
@@ -21,14 +23,15 @@ public sealed class PortraitCamera
         };
         var orbit = Quaternion.CreateFromYawPitchRoll(Radians(config.Yaw), -Radians(config.Pitch), 0);
         // FFXIV characters face +Z at rotation zero. Positive pitch raises the camera.
-        var direction = Vector3.Transform(Vector3.Transform(Vector3.UnitZ, orbit), reference);
+        var localDirection = Vector3.Transform(Vector3.UnitZ, orbit);
+        var direction = Vector3.Transform(localDirection, reference);
         var target = bone.Position + Vector3.Transform(config.Offset, reference);
         var eye = target + direction * config.Distance;
         var up = Vector3.Transform(Vector3.UnitY, reference);
         if (Math.Abs(Vector3.Dot(Vector3.Normalize(direction), up)) > 0.98f)
-            up = Math.Abs(direction.Y) < 0.95f ? Vector3.UnitY : Vector3.UnitX;
+            up = Vector3.Transform(Vector3.Transform(Vector3.UnitY, orbit), reference);
         up = Vector3.Transform(up, Quaternion.CreateFromAxisAngle(Vector3.Normalize(target - eye), Radians(config.Roll)));
-        if (previous is { } p && config.Smoothing > 0 && Vector3.Distance(p.Target, target) < 5)
+        if (!config.LockBone && previous is { } p && config.Smoothing > 0 && Vector3.Distance(p.Target, target) < 5)
         {
             var amount = 1 - MathF.Exp(-Math.Clamp(elapsed, 0, 1) / config.Smoothing);
             eye = Vector3.Lerp(p.Eye, eye, amount);

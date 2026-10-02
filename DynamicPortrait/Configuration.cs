@@ -19,6 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     public Vector2 WindowSize = new(340, 380);
     public SubjectMode Subject;
     public OrientationMode Orientation;
+    public bool LockBone = true;
     public string BoneName = "j_sebo_c";
     public float Yaw;
     public float Pitch = -5.6f;
@@ -43,6 +44,7 @@ public sealed class Configuration : IPluginConfiguration
         WindowSize = defaults.WindowSize;
         Subject = defaults.Subject;
         Orientation = defaults.Orientation;
+        LockBone = defaults.LockBone;
         BoneName = defaults.BoneName;
         Yaw = defaults.Yaw;
         Pitch = defaults.Pitch;
