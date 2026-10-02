@@ -18,12 +18,12 @@ Use `/dportrait` to open settings and click **Start rendering**. Rendering start
 
 The default subject is your character's **Chest** (`j_sebo_c`). **Lock bone in frame** is optional and defaults to off. Enable it for immediate bone tracking: it calibrates against the selected orientation, then follows changes in bone position and rotation without smoothing lag. Choose **Head** for a stabilized head camera. Facial expressions and other deformation still animate. Unlock to use ordinary orientation and smoothing controls. Model redraws temporarily pause capture and resume when the new model is ready.
 
-Settings are organized into **Camera**, **Output**, **Window**, and **Diagnostics** tabs. The output's longest edge defaults to 1024 pixels and supports up to 4096; the default window size is 340 × 380. Diagnostic mode copies the main view and disables camera controls.
+Settings are organized into fixed **Camera**, **Output**, **Window**, and **Diagnostics** tabs; only the selected tab's contents scroll. The output's longest edge defaults to 1024 pixels and supports up to 4096; the default window size is 340 × 380. Diagnostic mode copies the main view and disables camera controls.
 
 - `/dportrait on` / `/dportrait off`: start or stop rendering.
 - `/dportrait toggle`: show or hide the portrait window.
 - `/dportrait reset`: reset the portrait window.
-- `/dportrait resetall` or **Reset all settings**: restore every default, clear the locked subject, and stop rendering.
+- `/dportrait resetall` or **Reset all settings**: restore settings, clear the locked subject, and stop rendering, preserving both windows' positions and sizes. Use **Reset window** or `/dportrait reset` to reset portrait geometry separately.
 
 ## Build and release
 

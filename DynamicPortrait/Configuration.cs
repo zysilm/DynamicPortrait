@@ -40,8 +40,8 @@ public sealed class Configuration : IPluginConfiguration
         LockWindow = defaults.LockWindow;
         Borderless = defaults.Borderless;
         ClickThrough = defaults.ClickThrough;
-        WindowPosition = defaults.WindowPosition;
-        WindowSize = defaults.WindowSize;
+        // Reset settings without disturbing the user's portrait layout.
+        // Geometry is reset only by the dedicated Reset window action.
         Subject = defaults.Subject;
         Orientation = defaults.Orientation;
         LockBone = defaults.LockBone;

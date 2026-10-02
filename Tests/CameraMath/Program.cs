@@ -175,8 +175,13 @@ foreach (var field in settingFields)
     field.SetValue(config, replacement);
 }
 config.Version = 99;
+var windowPositionBeforeReset = config.WindowPosition;
+var windowSizeBeforeReset = config.WindowSize;
 config.ResetDefaults();
 var defaults = new Configuration();
-Check("Reset all restores every public setting and schema version", config.Version == defaults.Version
-    && settingFields.All(field => Equals(field.GetValue(config), field.GetValue(defaults))));
+Check("Reset settings preserves portrait position and size", config.WindowPosition == windowPositionBeforeReset
+    && config.WindowSize == windowSizeBeforeReset);
+Check("Reset all restores other public settings and schema version", config.Version == defaults.Version
+    && settingFields.Where(field => field.Name is not nameof(Configuration.WindowPosition) and not nameof(Configuration.WindowSize))
+        .All(field => Equals(field.GetValue(config), field.GetValue(defaults))));
 Console.WriteLine($"{passed} camera/configuration checks passed.");

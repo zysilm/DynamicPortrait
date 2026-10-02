@@ -10,7 +10,6 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
 {
     private bool settingsOpen;
     private bool resetWindow = true;
-    private bool resetSettingsWindow;
     private bool dirty;
     private long lastSaved;
     private string boneFilter = "";
@@ -23,8 +22,6 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         subjects.Clear();
         renderer.ResetSession();
         boneFilter = "";
-        resetWindow = true;
-        resetSettingsWindow = true;
         settingsOpen = true;
         dirty = false;
         save();
@@ -105,16 +102,10 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
 
     private void DrawSettings()
     {
-        if (resetSettingsWindow)
-        {
-            ImGui.SetNextWindowPos(new(430, 100), ImGuiCond.Always);
-            ImGui.SetNextWindowSize(new(560, 640), ImGuiCond.Always);
-            ImGui.SetNextWindowCollapsed(false, ImGuiCond.Always);
-            resetSettingsWindow = false;
-        }
         ImGui.SetNextWindowSize(new(560, 640), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSizeConstraints(new(460, 400), new(4096, 4096));
-        if (!ImGui.Begin("Dynamic Portrait settings###DynamicPortrait.Settings", ref settingsOpen)) { ImGui.End(); return; }
+        if (!ImGui.Begin("Dynamic Portrait settings###DynamicPortrait.Settings", ref settingsOpen,
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)) { ImGui.End(); return; }
         try
         {
             ImGui.BeginDisabled(!renderer.Ready);
@@ -130,44 +121,38 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             if (renderer.Fault != null) ImGui.TextWrapped($"Error: {renderer.Fault}");
             if (renderer.MainViewOnly) ImGui.TextWrapped("Main-view diagnostic mode is active. Camera controls are disabled.");
             ImGui.Separator();
-            var contentVisible = ImGui.BeginChild("settings-content", new Vector2(0, -ImGui.GetFrameHeightWithSpacing() - ImGui.GetStyle().ItemSpacing.Y));
-            try
+            if (ImGui.BeginTabBar("portrait-settings-tabs"))
             {
-                if (contentVisible && ImGui.BeginTabBar("portrait-settings-tabs"))
+                try
                 {
-                    try
-                    {
-                        if (ImGui.BeginTabItem("Camera"))
-                        {
-                            try { DrawCameraSettings(); }
-                            finally { ImGui.EndTabItem(); }
-                        }
-                        if (ImGui.BeginTabItem("Output"))
-                        {
-                            try { DrawOutputSettings(); }
-                            finally { ImGui.EndTabItem(); }
-                        }
-                        if (ImGui.BeginTabItem("Window"))
-                        {
-                            try { DrawWindowSettings(); }
-                            finally { ImGui.EndTabItem(); }
-                        }
-                        if (ImGui.BeginTabItem("Diagnostics"))
-                        {
-                            try { DrawDiagnostics(); }
-                            finally { ImGui.EndTabItem(); }
-                        }
-                    }
-                    finally { ImGui.EndTabBar(); }
+                    DrawSettingsTab("Camera", DrawCameraSettings);
+                    DrawSettingsTab("Output", DrawOutputSettings);
+                    DrawSettingsTab("Window", DrawWindowSettings);
+                    DrawSettingsTab("Diagnostics", DrawDiagnostics);
                 }
+                finally { ImGui.EndTabBar(); }
             }
-            finally { ImGui.EndChild(); }
             ImGui.Separator();
             if (ImGui.Button("Reset all settings")) ResetAll();
-            Help("Restore every default, clear the locked subject, and stop rendering.");
+            Help("Restore settings, clear the locked subject, and stop rendering. Keep both windows' positions and sizes.");
         }
         finally { ImGui.End(); }
         if (dirty) config.Normalize();
+    }
+
+    private static void DrawSettingsTab(string label, Action draw)
+    {
+        if (!ImGui.BeginTabItem(label)) return;
+        try
+        {
+            // Only the content scrolls. The tab bar, toolbar and reset action
+            // belong to the non-scrolling parent window.
+            var visible = ImGui.BeginChild($"settings-content-{label}",
+                new Vector2(0, -ImGui.GetFrameHeightWithSpacing() - ImGui.GetStyle().ItemSpacing.Y));
+            try { if (visible) draw(); }
+            finally { ImGui.EndChild(); }
+        }
+        finally { ImGui.EndTabItem(); }
     }
 
     private void DrawCameraSettings()
