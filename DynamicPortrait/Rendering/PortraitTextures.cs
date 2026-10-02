@@ -14,6 +14,7 @@ internal sealed unsafe class PortraitTextures : IDisposable
         public ID3D11Texture2D* OpaqueTexture;
         public ID3D11ShaderResourceView* OpaqueView;
         public ID3D11UnorderedAccessView* OpaqueOutput;
+        public long Bytes;
         public void Dispose()
         {
             if (OpaqueOutput != null) { OpaqueOutput->Release(); OpaqueOutput = null; }
@@ -39,6 +40,24 @@ internal sealed unsafe class PortraitTextures : IDisposable
     public void RequestProbe() { lock (gate) probeRequested = true; }
     public void ClearPublished() { lock (gate) front = 0; }
     public long Copies { get; private set; }
+    private long createdSets;
+    public readonly record struct ResourceStats(long CreatedSets, int LiveTextures, int RetiredSets, long TextureBytes);
+    public ResourceStats Statistics
+    {
+        get
+        {
+            lock (gate)
+            {
+                var count = slots.Length;
+                long bytes = 0;
+                foreach (var slot in slots) bytes += slot.Bytes;
+                foreach (var batch in retired)
+                    foreach (var slot in batch.Slots) { count++; bytes += slot.Bytes; }
+                // Each slot owns a source copy and an opaque output texture.
+                return new(createdSets, count * 2, retired.Count, bytes);
+            }
+        }
+    }
 
     public (nint Handle, int Width, int Height) Read()
     {
@@ -101,6 +120,8 @@ internal sealed unsafe class PortraitTextures : IDisposable
                             ID3D11UnorderedAccessView* output = null;
                             Check(device->CreateUnorderedAccessView((ID3D11Resource*)texture, null, &output), "Create opaque UAV");
                             replacement[i].OpaqueOutput = output;
+                            replacement[i].Bytes = (long)requestedWidth * requestedHeight
+                                * (desc.Format == Format.FormatR16G16B16A16Float ? 12 : 8);
                         }
                     }
                     catch
@@ -110,6 +131,7 @@ internal sealed unsafe class PortraitTextures : IDisposable
                     }
                     if (slots.Length != 0) retired.Add((presents, slots));
                     slots = replacement;
+                    createdSets++;
                     width = requestedWidth;
                     height = requestedHeight;
                     format = desc.Format;

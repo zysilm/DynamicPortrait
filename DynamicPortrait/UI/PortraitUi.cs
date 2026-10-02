@@ -255,11 +255,20 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
                 Stat("UI draws during portrait", renderer.UiDrawsDuringPortrait.ToString());
                 Stat("Main-chain presents", renderer.MainPresents.ToString());
                 Stat("Portrait tick (CPU)", $"{renderer.LastPortraitMilliseconds:F2} ms");
+                Stat("Normal tick (CPU)", $"{renderer.LastNormalMilliseconds:F2} ms");
+                Stat("Capture copy (CPU)", $"{renderer.LastCopyMilliseconds:F2} ms");
+                Stat("Pending capture markers", renderer.PendingMarkers.ToString());
                 Stat("Texture", $"{texture.Width} x {texture.Height}");
+                var resources = renderer.TextureStatistics;
+                Stat("Texture sets created", resources.CreatedSets.ToString());
+                Stat("Live GPU textures", resources.LiveTextures.ToString());
+                Stat("Retired texture sets", resources.RetiredSets.ToString());
+                Stat("Texture storage (estimate)", $"{resources.TextureBytes / 1048576.0:F1} MiB");
             }
             finally { ImGui.EndTable(); }
         }
         ImGui.TextWrapped($"Scene pixels: {renderer.PixelProbe}");
+        ImGui.TextWrapped("CPU times measure call duration, including any waits; they are not GPU timings. Texture storage estimates exclude game resources and driver overhead.");
         ImGui.Separator();
         ImGui.TextWrapped("Experimental dual-view renderer. Each portrait update runs an additional game tick. Runtime compatibility and performance require in-game testing.");
         ImGui.TextWrapped("Reference: WesleyLuk90/ffxiv-vr. License: AGPL-3.0-or-later.");

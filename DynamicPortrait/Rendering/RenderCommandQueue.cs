@@ -10,6 +10,7 @@ internal sealed unsafe class RenderCommandQueue
 {
     public readonly record struct CaptureRequest(long Id, int Width, int Height);
     private readonly ConcurrentDictionary<nint, CaptureRequest> pending = new();
+    public int PendingCount => pending.Count;
 
     public bool TryTake(nint command, out CaptureRequest request) => pending.TryRemove(command, out request);
     public bool Register(nint command, CaptureRequest request) => pending.TryAdd(command, request);

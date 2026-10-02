@@ -95,6 +95,10 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     public long CapturedFrames => textures.Copies;
     public string PixelProbe => textures.ProbeResult;
     public double LastPortraitMilliseconds { get; private set; }
+    public double LastNormalMilliseconds { get; private set; }
+    public double LastCopyMilliseconds { get; private set; }
+    public PortraitTextures.ResourceStats TextureStatistics => textures.Statistics;
+    public int PendingMarkers => queue.PendingCount;
     public long SkippedPresents { get; private set; }
     public bool Ready => !stopping;
     public (nint Handle, int Width, int Height) Texture => textures.Read();
@@ -240,7 +244,8 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             if (Enabled && clock.Elapsed.TotalSeconds - lastDiagnostic >= 5)
             {
                 lastDiagnostic = clock.Elapsed.TotalSeconds;
-                log.Info($"Pipeline: mainViewOnly={MainViewOnly}, normal={NormalTicks}, portrait={PortraitTicks}, captures={CapturedFrames}, suppressed={SkippedPresents}, mainPresents={MainPresents}, ui={UiDraws}, status={Status}, pixels={textures.ProbeResult}");
+                var resources = textures.Statistics;
+                log.Info($"Pipeline: mainViewOnly={MainViewOnly}, normal={NormalTicks}, portrait={PortraitTicks}, captures={CapturedFrames}, suppressed={SkippedPresents}, mainPresents={MainPresents}, ui={UiDraws}, normalCpuMs={LastNormalMilliseconds:F2}, portraitCpuMs={LastPortraitMilliseconds:F2}, copyCpuMs={LastCopyMilliseconds:F2}, pendingMarkers={queue.PendingCount}, textureSetsCreated={resources.CreatedSets}, liveTextures={resources.LiveTextures}, retiredSets={resources.RetiredSets}, textureMiB={resources.TextureBytes / 1048576.0:F1}, status={Status}, pixels={textures.ProbeResult}");
             }
             // The diagnostic baseline must bypass both the extra tick and the
             // pre-UI marker. Its source is the final DXGI buffer in Present.
@@ -315,8 +320,13 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             NormalTicks++;
             normalAfterPortrait = submittedPortrait;
             if (submittedPortrait) TraceEvent("normal tick after portrait enter");
+            var normalStarted = Stopwatch.GetTimestamp();
             try { return original(native); }
-            finally { normalAfterPortrait = false; }
+            finally
+            {
+                LastNormalMilliseconds = Stopwatch.GetElapsedTime(normalStarted).TotalMilliseconds;
+                normalAfterPortrait = false;
+            }
         }
         finally { Interlocked.Decrement(ref callbacks); }
     }
@@ -379,7 +389,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 try
                 {
                     captureQueued = queue.EnqueueCapture(captureId, cropWidth, cropHeight);
-                    TraceEvent($"submit id={captureId}, queued={captureQueued}, portrait={inPortrait}");
+                    if (TraceEnabled) TraceEvent($"submit id={captureId}, queued={captureQueued}, portrait={inPortrait}");
                 }
                 catch (Exception e) { Fail(e); }
             }
@@ -399,7 +409,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             if (command != null && queue.TryTake((nint)command, out var request))
             {
                 cycle.CaptureExecuted(request.Id);
-                TraceEvent($"capture id={request.Id}, cpuPortrait={inPortrait}");
+                if (TraceEnabled) TraceEvent($"capture id={request.Id}, cpuPortrait={inPortrait}");
                 // This marks frame identity only. The scene source used here in
                 // 0.1.0.4 was empty on the tested client. Copy the final buffer
                 // when this frame reaches Present instead.
@@ -419,7 +429,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             var device = Device.Instance();
             if (device != null && device->SwapChain == swapChain && Enabled)
             {
-                if (MainViewOnly || inPortrait || normalAfterPortrait || cycle.HasPending)
+                if (TraceEnabled && (MainViewOnly || inPortrait || normalAfterPortrait || cycle.HasPending))
                     TraceEvent($"present enter, cpuPortrait={inPortrait}, normalAfterPortrait={normalAfterPortrait}");
                 if (MainViewOnly && !cycle.HasPending)
                 {
@@ -429,8 +439,10 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                         {
                             var firstCapture = lastCapture < 0;
                             lastCapture = clock.Elapsed.TotalSeconds;
+                            var copyStarted = Stopwatch.GetTimestamp();
                             SwapChainCapture.Capture(textures, (Silk.NET.DXGI.IDXGISwapChain*)swapChain->DXGISwapChain,
                                 (Silk.NET.Direct3D11.ID3D11DeviceContext*)device->D3D11DeviceContext, resolution, aspect);
+                            LastCopyMilliseconds = Stopwatch.GetElapsedTime(copyStarted).TotalMilliseconds;
                             SubjectReady = true;
                             Status = "Diagnostic: final backbuffer (includes game UI)";
                             if (firstCapture) log.Info($"Final-backbuffer first capture: {textures.ProbeResult}");
@@ -441,17 +453,19 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             }
             if (device != null && device->SwapChain == swapChain && cycle.ConsumePresent(out var completedId, out var suppress))
             {
-                TraceEvent($"present after marker id={completedId}, suppress={suppress}, cpuPortrait={inPortrait}");
+                if (TraceEnabled) TraceEvent($"present after marker id={completedId}, suppress={suppress}, cpuPortrait={inPortrait}");
                 if (suppress)
                 {
                     try
                     {
                         if (!stopping && Enabled && !MainViewOnly && !subjectFrame.Unavailable && SubjectReady)
                         {
+                            var copyStarted = Stopwatch.GetTimestamp();
                             SwapChainCapture.CaptureRegion(textures, (Silk.NET.DXGI.IDXGISwapChain*)swapChain->DXGISwapChain,
                                 (Silk.NET.Direct3D11.ID3D11DeviceContext*)device->D3D11DeviceContext,
                                 cropWidth, cropHeight, sourceWidth, sourceHeight);
-                            TraceEvent($"portrait backbuffer copied id={completedId}, {textures.ProbeResult}");
+                            LastCopyMilliseconds = Stopwatch.GetElapsedTime(copyStarted).TotalMilliseconds;
+                            if (TraceEnabled) TraceEvent($"portrait backbuffer copied id={completedId}, {textures.ProbeResult}");
                         }
                     }
                     catch (Exception e) { Fail(e); }
@@ -500,8 +514,11 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         // recalibrates bone axes, and resumes without a manual restart.
     }
 
+    private bool TraceEnabled => Volatile.Read(ref traceEvents) < 30;
+
     private void TraceEvent(string message)
     {
+        if (!TraceEnabled) return;
         if (Interlocked.Increment(ref traceEvents) <= 30)
             log.Info($"Pipeline event t={clock.Elapsed.TotalMilliseconds:F1} thread={Environment.CurrentManagedThreadId}: {message}");
     }

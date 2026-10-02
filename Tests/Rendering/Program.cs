@@ -110,6 +110,9 @@ internal static unsafe class Program
         Check("Runtime pixel probe detects transparent scene", captured.ProbeResult.Contains("alpha=0.000..0.000"));
         captured.Dispose();
         Check("Disposal clears published texture", captured.Read().Handle == 0);
+        Check("Disposal releases all owned texture batches", captured.Statistics.LiveTextures == 0
+            && captured.Statistics.RetiredSets == 0 && captured.Statistics.TextureBytes == 0);
+        if (args.Contains("--soak")) TestCaptureSoak(gpu, output);
         gpu.AssertNoDeviceError();
         File.WriteAllText(Path.Combine(output, "result.txt"), $"PASS: {passed} checks. Backend: D3D11 WARP. Game process not used.\n");
         Console.WriteLine($"{passed} offline ABI, scheduling and D3D11 checks passed. Images: {output}");
@@ -125,6 +128,61 @@ internal static unsafe class Program
         var b = canonical.GetMethod("Invoke")!;
         Check($"ABI {gameType.Name}.{name} exactly matches host metadata", a.ReturnType == b.ReturnType
             && a.GetParameters().Select(p => p.ParameterType).SequenceEqual(b.GetParameters().Select(p => p.ParameterType)));
+    }
+
+    private static void TestCaptureSoak(OffscreenGpu gpu, string output)
+    {
+        using var textures = new PortraitTextures();
+        var registry = new RenderCommandQueue();
+        var cycle = new CaptureCycle();
+        for (var i = 0; i < 500; i++)
+        {
+            textures.Capture(gpu.Scene, gpu.Context, 128, 128);
+            textures.OnPresented();
+        }
+        // Drain GPU work before measuring. This benchmark is a synthetic WARP
+        // capture loop, not a measurement of the game's renderer or real VRAM.
+        _ = gpu.ReadView(textures.Read().Handle);
+        var warmStats = textures.Statistics;
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var handles = new HashSet<nint>();
+        const int captures = 8000;
+        for (var i = 0; i < captures; i++)
+        {
+            textures.Capture(gpu.Scene, gpu.Context, 128, 128);
+            textures.OnPresented();
+            handles.Add(textures.Read().Handle);
+            if (!cycle.TryBegin(i, out var id) || !registry.Register(123, new(id, 128, 128))
+                || !registry.TryTake(123, out var request)) throw new Exception("Soak marker registration failed");
+            cycle.CaptureExecuted(request.Id);
+            if (!cycle.ConsumePortraitPresent()) throw new Exception("Soak marker completion failed");
+        }
+        _ = gpu.ReadView(textures.Read().Handle);
+        timer.Stop();
+        var managedBytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        var finalStats = textures.Statistics;
+        Check("8000 steady captures reuse exactly three output SRVs", handles.Count == 3);
+        Check("8000 captures do not allocate additional texture sets", finalStats.CreatedSets == warmStats.CreatedSets
+            && finalStats.LiveTextures == 6 && finalStats.RetiredSets == 0 && finalStats.TextureBytes == warmStats.TextureBytes);
+        Check("8000 completed markers leave no registry or cycle backlog", registry.PendingCount == 0 && !cycle.HasPending);
+        var peakTextures = 0;
+        for (var resize = 0; resize < 100; resize++)
+        {
+            var size = resize % 2 == 0 ? 192 : 128;
+            textures.Capture(gpu.Scene, gpu.Context, size, size);
+            peakTextures = Math.Max(peakTextures, textures.Statistics.LiveTextures);
+            for (var frame = 0; frame < 4; frame++) textures.OnPresented();
+        }
+        _ = gpu.ReadView(textures.Read().Handle);
+        Check("100 resize cycles retire old textures within four Presents", peakTextures == 12
+            && textures.Statistics.LiveTextures == 6 && textures.Statistics.RetiredSets == 0);
+        var report = $"Synthetic D3D11 WARP; no game process.\nCaptures: {captures}\nElapsed ms (includes final GPU drain): {timer.Elapsed.TotalMilliseconds:F2}\n"
+            + $"Managed bytes on test thread (includes marker registry and readback): {managedBytes}\n"
+            + $"Steady texture sets created: {finalStats.CreatedSets}\nSteady owned textures: {finalStats.LiveTextures}\n"
+            + $"Steady estimated texture storage bytes: {finalStats.TextureBytes}\nResize peak owned textures: {peakTextures}\n";
+        File.WriteAllText(Path.Combine(output, "capture-soak.txt"), report);
+        Console.WriteLine(report);
     }
 
     private static void TestBoneLock(OffscreenGpu gpu, string output)
