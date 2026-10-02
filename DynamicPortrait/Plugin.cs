@@ -5,6 +5,7 @@ using Dalamud.Plugin.Services;
 using DynamicPortrait.Camera;
 using DynamicPortrait.Rendering;
 using DynamicPortrait.UI;
+using System.Text.Json;
 
 namespace DynamicPortrait;
 
@@ -17,6 +18,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SubjectResolver subjects;
     private readonly PortraitRenderer renderer;
     private readonly PortraitUi windows;
+    private RenderInvestigation? investigation;
+    private bool disposed;
 
     public Plugin(IDalamudPluginInterface pi, ICommandManager commands, IClientState client,
         IObjectTable objects, ITargetManager targets, IGameInteropProvider interop,
@@ -35,6 +38,24 @@ public sealed class Plugin : IDalamudPlugin
         pi.UiBuilder.OpenConfigUi += windows.OpenSettings;
         pi.UiBuilder.OpenMainUi += windows.OpenSettings;
         client.TerritoryChanged += OnTerritory;
+        var requestPath = Path.Combine(pi.ConfigDirectory.FullName, "render-investigation.request.json");
+        if (File.Exists(requestPath))
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<RenderInvestigation.Request>(File.ReadAllText(requestPath));
+                File.Delete(requestPath);
+                if (request != null && request.ExpiresUtc.ToUniversalTime() > DateTime.UtcNow)
+                    _ = framework.RunOnTick(() =>
+                    {
+                        if (disposed) return;
+                        try { investigation = new(renderer, framework, interop, scanner, log,
+                            Path.Combine(pi.ConfigDirectory.FullName, "diagnostics"), request.SecondsPerPhase); }
+                        catch (Exception e) { log.Error(e, "Could not start render investigation"); }
+                    }, delayTicks: 10);
+            }
+            catch (Exception e) { log.Error(e, "Could not consume render investigation request"); }
+        }
     }
 
     private void OnCommand(string command, string args)
@@ -60,11 +81,13 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        disposed = true;
         pi.UiBuilder.Draw -= windows.Draw;
         pi.UiBuilder.OpenConfigUi -= windows.OpenSettings;
         pi.UiBuilder.OpenMainUi -= windows.OpenSettings;
         client.TerritoryChanged -= OnTerritory;
         commands.RemoveHandler("/dportrait");
+        investigation?.Dispose();
         renderer.Dispose();
         Save();
     }

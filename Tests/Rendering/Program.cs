@@ -32,6 +32,7 @@ internal static unsafe class Program
         CheckAbi(typeof(NativeCallbacks.Ui), typeof(AtkServer), "ProcessUICommandsAlt");
         TestDelayedCommands();
         TestSubjectRedraw();
+        TestInvestigationSamples();
         TestFallback();
         CameraStateTest.Run();
 
@@ -116,6 +117,24 @@ internal static unsafe class Program
         gpu.AssertNoDeviceError();
         File.WriteAllText(Path.Combine(output, "result.txt"), $"PASS: {passed} checks. Backend: D3D11 WARP. Game process not used.\n");
         Console.WriteLine($"{passed} offline ABI, scheduling and D3D11 checks passed. Images: {output}");
+    }
+
+    private static void TestInvestigationSamples()
+    {
+        var samples = new InvestigationSamples();
+        samples.Frame = samples.PhaseFirstFrame = 1;
+        Parallel.For(0, 3000, _ => { using var scope = samples.Measure(InvestigationSamples.Stage.RenderView, 30); });
+        var first = samples.Snapshot();
+        Check("Investigation stores bounded events and records overflow", first.Events.Length == 4096 && first.Dropped == 1904);
+        Check("Investigation aggregates concurrent scopes without losing calls", first.Summaries.Single().Calls == 3000);
+        samples.Phase = 1; samples.Frame = 20;
+        using (samples.Measure(InvestigationSamples.Stage.Tick)) { }
+        using (default(InvestigationSamples.Scope)) { }
+        var last = samples.Snapshot();
+        Check("Investigation isolates phases and safely ignores inactive scopes", last.Summaries.Length == 2
+            && last.Summaries.Single(s => s.Phase == 1).Calls == 1 && last.Dropped == first.Dropped);
+        Check("Investigation reports frame pacing independently of native view calls", last.FramePacing.Single().Phase == 1
+            && last.FramePacing.Single().Samples == 1);
     }
 
     private static void CheckAbi(Type ours, Type gameType, string name)

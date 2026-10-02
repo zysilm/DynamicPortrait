@@ -72,6 +72,15 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     private double lastDiagnostic;
     private int traceEvents;
     private bool normalAfterPortrait;
+    internal RenderInvestigation? Investigation;
+    internal bool InvestigationCapture;
+
+    internal void PrepareInvestigation()
+    {
+        SetEnabled(false);
+        if (!hooksReady) InitializeHooks();
+        if (!hooksReady) throw new InvalidOperationException(Fault ?? "Investigation hooks unavailable");
+    }
 
     // Diagnostic mode is session-only and can only change while rendering is stopped.
     public bool MainViewOnly { get; private set; }
@@ -221,7 +230,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     private bool CanCapture()
     {
         if (!Enabled || stopping) return false;
-        if (!config.ShowPortrait || clock.Elapsed.TotalSeconds - lastWindowVisible > 0.3)
+        if (!InvestigationCapture && (!config.ShowPortrait || clock.Elapsed.TotalSeconds - lastWindowVisible > 0.3))
         { Status = "Portrait window hidden"; return false; }
         if (!client.IsLoggedIn || client.IsGPosing || conditions[ConditionFlag.BetweenAreas] || conditions[ConditionFlag.BetweenAreas51]
             || conditions[ConditionFlag.OccupiedInCutSceneEvent] || conditions[ConditionFlag.WatchingCutscene78])
@@ -235,6 +244,13 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     }
 
     private bool Tick(NativeFramework* native)
+    {
+        Investigation?.BeginFrame(NormalTicks + 1);
+        using var measurement = Investigation?.Measure(InvestigationSamples.Stage.Tick) ?? default;
+        return TickCore(native);
+    }
+
+    private bool TickCore(NativeFramework* native)
     {
         Interlocked.Increment(ref callbacks);
         var original = tick!.Original;
@@ -333,6 +349,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
 
     private void Matrices(nint camera, nint ptr)
     {
+        using var measurement = Investigation?.Measure(InvestigationSamples.Stage.Matrices) ?? default;
         Interlocked.Increment(ref callbacks);
         try
         {
@@ -381,6 +398,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
 
     private void BeforeUi(AtkServer* server, bool flag)
     {
+        using var measurement = Investigation?.Measure(InvestigationSamples.Stage.Ui) ?? default;
         Interlocked.Increment(ref callbacks);
         try
         {
@@ -423,6 +441,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
 
     private void Present(SwapChain* swapChain)
     {
+        using var measurement = Investigation?.Measure(InvestigationSamples.Stage.Present) ?? default;
         Interlocked.Increment(ref callbacks);
         try
         {
@@ -542,6 +561,14 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         cameraOverride.Restore();
         DisposeHooks();
         queue.Clear();
+        // An idle plugin has no in-flight UI resources. Dispose before its load
+        // context unloads, so previously unused Silk methods can still be JITted.
+        if (textures.Statistics.LiveTextures == 0 && Volatile.Read(ref callbacks) == 0)
+        {
+            textures.Dispose();
+            disposed = true;
+            return;
+        }
         // Hooks must be disposed synchronously: Dalamud cleans up plugin-scoped hooks on
         // unload. Only GPU resources are deferred, to let outstanding ImGui draws finish.
         _ = frameworkService.RunOnTick(FinishDispose, delayTicks: 2);

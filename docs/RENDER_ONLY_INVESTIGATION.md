@@ -34,7 +34,36 @@ The legacy xivr-Ex task loop executes all tasks and uses fixed indices from an o
 
 ## Next experiment: Observe before replaying
 
-Add an explicitly enabled observation mode that executes only one original Framework tick. Record bounded phase order, thread identity, call counts, and wall time for manager rendering and selected task boundaries. Use a bounded buffer and summarize after the frame; do not format a log entry for every native call indefinitely.
+### Automated live investigation
+
+The dev plugin accepts a one-shot `render-investigation.request.json` in its Dalamud plugin configuration directory. Requests expire, are consumed on load, and never enable recurring profiling on ordinary startup. With automatic dev-plugin reloading enabled, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/Start-RenderInvestigation.ps1 -Foreground
+```
+
+The script touches the Release DLL to request a reload. `-Foreground` temporarily brings the running game forward, waits for the report, and restores the previous foreground window if the user has not already selected another one. It does not send game input. Omit the switch to leave window focus unchanged.
+
+The plugin samples 12 seconds of the normal tick followed by 12 seconds of the existing portrait backend, then stops rendering automatically. It temporarily bypasses portrait-window visibility for this finite comparison, while retaining loading/login/cutscene checks. It does not change saved settings, window geometry, or session diagnostic mode. The portrait phase still uses the existing second tick; observation hooks never replay additional native functions.
+
+JSON reports are saved to `%APPDATA%/XIVLauncher/pluginConfigs/DynamicPortrait/diagnostics/`. They contain inclusive native call times/counts, bounded event traces for the first eight frames of each phase, frame pacing, foreground-frame counts, task function RVAs, process resource checkpoints, and portrait resource/capture counters. Timing includes engine waits and does not measure GPU execution. Event storage is capped at 4096 records; frame percentile samples are capped at 4096 per phase, while aggregate counters continue for the finite observation period. Hooks added solely for observation are disabled when sampling finishes. Serialization and file writes happen after sampling on a worker that never calls game APIs.
+
+The first live background sample on 2026-10-02 showed normal Tick wall time of 87.0 ms versus 171.6 ms with portraits. Task execution and manager rendering were called approximately twice per displayed frame. Markers remained at zero and one texture set owned six textures, with no retired sets. The sample confirms duplicate work and duplicate frame waits; it does not establish a foreground performance budget or rule out GPU bottlenecks. The live task list also confirms separate game, camera, scene, animation, scene post-update, manager update, and rendering tasks. They must not all be replayed to produce an extra view.
+
+Another complete background sample (`render-investigation-20261002-210453.json`, zero foreground frames in both phases) reproduced the result:
+
+| Measurement | Baseline | Portrait |
+| --- | --- | --- |
+| Tick mean / p95 wall time | 64.66 / 66.83 ms | 126.98 / 129.24 ms |
+| Observed outer ticks | 185 | 94 |
+| Task execution calls | 185 | 189 |
+| Manager rendering calls | 185 | 189 |
+| Mean task execution per call | 10.51 ms | 9.77 ms |
+| Mean manager rendering per call | 4.13 ms | 3.52 ms |
+
+The portrait phase completed 94 copies. Its last CPU copy call took 0.023 ms; this does not include GPU completion or prove low GPU cost. Resource checkpoints reported zero pending markers, one texture set, six textures, zero retired sets, and 84.4 MiB of owned texture storage. A short sample cannot rule out every long-session leak. Much of the observed Tick time lies outside task execution and Present, consistent with frame waiting being repeated alongside updates. A foreground attempt changed focus between phases and must not be used as a matched comparison.
+
+The baseline already observes one original Framework tick with bounded phase order, thread identity, counts, and wall time. Follow-up observation should resolve selected task boundaries and visibility preparation without replaying any game updates.
 
 Determine when animation poses become ready, when camera matrices and visibility lists are consumed, where render jobs finish, and when UI and Present enter the command stream. Confirm actual task identities/order using resolved code addresses rather than an assumed task number. The observation mode must not replay tasks or change camera state.
 

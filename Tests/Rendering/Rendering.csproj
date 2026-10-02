@@ -22,6 +22,7 @@
     <Compile Include="../../DynamicPortrait/Rendering/CameraOverride.cs" Link="CameraOverride.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/RenderCommandQueue.cs" Link="RenderCommandQueue.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/NativeCallbacks.cs" Link="NativeCallbacks.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/InvestigationSamples.cs" Link="InvestigationSamples.cs" />
     <Compile Include="../../DynamicPortrait/Camera/PortraitCamera.cs" Link="PortraitCamera.cs" />
     <Compile Include="../../DynamicPortrait/Configuration.cs" Link="Configuration.cs" />
     <Compile Include="../CameraMath/ConfigurationContract.cs" Link="ConfigurationContract.cs" />
