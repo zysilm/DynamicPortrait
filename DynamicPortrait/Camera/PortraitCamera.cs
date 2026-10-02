@@ -9,18 +9,26 @@ public readonly record struct CameraPose(Vector3 Eye, Vector3 Target, Vector3 Up
 public sealed class PortraitCamera
 {
     private CameraPose? previous;
-    public void Reset() => previous = null;
+    private Quaternion? lockBasis;
+    public void Reset() { previous = null; lockBasis = null; }
 
     public CameraPose Solve(BonePose bone, Configuration config, float elapsed)
     {
-        // Strict locking keeps the entire camera rig in bone space. World-space
-        // smoothing would introduce tracking lag during running and animation.
-        var reference = config.LockBone ? bone.Rotation : config.Orientation switch
+        var reference = config.Orientation switch
         {
             OrientationMode.Bone => bone.Rotation,
             OrientationMode.World => Quaternion.Identity,
             _ => Quaternion.CreateFromAxisAngle(Vector3.UnitY, bone.CharacterYaw),
         };
+        if (config.LockBone)
+        {
+            // Calibrate the bone's local axes against the chosen framing once.
+            // Bone bind axes are not character axes and can contain a 90-degree
+            // roll. Track subsequent bone motion without importing that offset.
+            lockBasis ??= Quaternion.Inverse(bone.Rotation) * reference;
+            reference = Quaternion.Normalize(bone.Rotation * lockBasis.Value);
+        }
+        else lockBasis = null;
         var orbit = Quaternion.CreateFromYawPitchRoll(Radians(config.Yaw), -Radians(config.Pitch), 0);
         // FFXIV characters face +Z at rotation zero. Positive pitch raises the camera.
         var localDirection = Vector3.Transform(Vector3.UnitZ, orbit);

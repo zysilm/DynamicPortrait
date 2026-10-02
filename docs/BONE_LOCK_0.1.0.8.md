@@ -1,5 +1,7 @@
 # 0.1.0.8: Bone stabilization and settings layout
 
+This is a historical preview note. Version 0.1.0.9 makes locking opt-in and adds calibration and redraw recovery; see [BONE_LOCK_FIXES_0.1.0.9.md](BONE_LOCK_FIXES_0.1.0.9.md).
+
 ## Behavior
 
 **Lock bone in frame** is enabled by default, including when loading an older configuration without that field. The camera rig uses the selected bone's world position and rotation for its eye, look-at offset, and up direction. It bypasses world-space smoothing so animated translation and rotation do not introduce tracking lag. Other joints, facial expressions, and the background continue animating; the plugin does not freeze or modify skeleton poses.

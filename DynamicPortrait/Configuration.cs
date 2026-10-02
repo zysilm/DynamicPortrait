@@ -10,7 +10,7 @@ public enum OrientationMode { Character, Bone, World }
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public bool ShowPortrait = true;
     public bool LockWindow;
     public bool Borderless;
@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     public Vector2 WindowSize = new(340, 380);
     public SubjectMode Subject;
     public OrientationMode Orientation;
-    public bool LockBone = true;
+    public bool LockBone;
     public string BoneName = "j_sebo_c";
     public float Yaw;
     public float Pitch = -5.6f;
@@ -62,6 +62,9 @@ public sealed class Configuration : IPluginConfiguration
     // Persisting the UI and camera never arms native hooks on login.
     public void Normalize()
     {
+        // The first bone-lock preview enabled it implicitly. Make that preview
+        // opt-in once on upgrade; subsequent explicit choices remain persisted.
+        if (Version < 2) { LockBone = false; Version = 2; }
         if (!Enum.IsDefined(Subject)) Subject = SubjectMode.Self;
         if (!Enum.IsDefined(Orientation)) Orientation = OrientationMode.Character;
         BoneName = string.IsNullOrWhiteSpace(BoneName) ? "j_sebo_c" : BoneName[..Math.Min(128, BoneName.Length)];

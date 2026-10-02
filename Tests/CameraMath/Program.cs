@@ -76,7 +76,14 @@ Vector3 ScreenPoint(Vector3 point, BonePose animated, CameraPose solved)
 }
 var legacyConfig = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"BoneName\":\"j_kao\",\"Smoothing\":0.08}",
     new System.Text.Json.JsonSerializerOptions { IncludeFields = true });
-Check("Bone locking is enabled for fresh and legacy configurations", new Configuration().LockBone && legacyConfig is { LockBone: true, BoneName: "j_kao" });
+Check("Bone locking is opt-in for fresh and legacy configurations", !new Configuration().LockBone && legacyConfig is { LockBone: false, BoneName: "j_kao" });
+var previewConfig = new Configuration { Version = 1, LockBone = true, BoneName = "j_kao", Roll = 17, Resolution = 2048 };
+previewConfig.Normalize();
+Check("Upgrade disables the old implicit lock without resetting other settings", previewConfig.Version == 2 && !previewConfig.LockBone
+    && previewConfig.BoneName == "j_kao" && Near(previewConfig.Roll, 17) && previewConfig.Resolution == 2048);
+previewConfig.LockBone = true;
+previewConfig.Normalize();
+Check("Explicit lock selection remains saved after migration", previewConfig.LockBone);
 foreach (var pitch in new[] { -85f, -5.6f, 85f })
 {
     config = new Configuration { LockBone = true, Offset = new(0.03f, 0.12f, -0.02f), Pitch = pitch, Yaw = 35, Roll = 23, Smoothing = 2 };
@@ -117,6 +124,33 @@ solver.Reset();
 solver.Solve(headPose, config, 0.1f);
 var followed = solver.Solve(headPose with { Position = Vector3.UnitX }, config, 0.1f * MathF.Log(2));
 Check("Unlocking restores smooth tracking", Near(followed.Target.X, 0.5f));
+
+foreach (var orientation in new[] { OrientationMode.Character, OrientationMode.World })
+{
+    config = new Configuration { LockBone = false, Orientation = orientation, Smoothing = 0, Yaw = 35, Pitch = -10, Roll = 17 };
+    solver.Reset();
+    var bindRotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2);
+    var offsetBone = new BonePose(new(1, 2, 3), bindRotation, 0.7f);
+    var unlocked = solver.Solve(offsetBone, config, 0.1f);
+    config.LockBone = true;
+    var calibrated = solver.Solve(offsetBone, config, 0.1f);
+    Check($"Enabling lock preserves {orientation} framing despite a 90-degree bone axis offset",
+        Vector3.Distance(unlocked.Eye, calibrated.Eye) < 0.0001f && Vector3.Distance(unlocked.Target, calibrated.Target) < 0.0001f
+        && Vector3.Distance(unlocked.Up, calibrated.Up) < 0.0001f);
+    var expected = landmarks.Select(point => ScreenPoint(point, offsetBone, calibrated)).ToArray();
+    var movedBone = offsetBone with { Position = new(-4, 3, -2), Rotation = Quaternion.CreateFromYawPitchRoll(0.8f, -0.5f, 0.3f) * bindRotation };
+    var moved = solver.Solve(movedBone, config, 0);
+    Check($"Calibrated {orientation} lock stabilizes all rigid landmarks after motion",
+        landmarks.Select((point, i) => Vector3.Distance(ScreenPoint(point, movedBone, moved), expected[i]) < 0.0002f).All(value => value));
+    solver.Reset();
+    var replacement = new BonePose(new(5, 1, 2), Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2), -0.4f);
+    var resumed = solver.Solve(replacement, config, 0);
+    config.LockBone = false;
+    config.Smoothing = 0;
+    var replacementUnlocked = new PortraitCamera().Solve(replacement, config, 0);
+    Check($"Model replacement recalibrates {orientation} lock instead of retaining old bone axes",
+        Vector3.Distance(resumed.Eye, replacementUnlocked.Eye) < 0.0001f && Vector3.Distance(resumed.Up, replacementUnlocked.Up) < 0.0001f);
+}
 
 config.Distance = float.NaN;
 config.FieldOfView = float.PositiveInfinity;

@@ -1,0 +1,11 @@
+# 0.1.0.9: Optional calibrated lock and redraw recovery
+
+Bone locking now defaults to off, including reset all. Configuration schema 2 disables the implicit lock from the first preview once on upgrade while retaining other settings. Subsequent explicit selections are saved normally.
+
+The previous lock directly treated the selected bone's axes as camera axes. A bone may have a fixed 90-degree axis offset, so enabling the lock could rotate the portrait even with zero user roll. Locking now calibrates once against the selected orientation and follows subsequent bone rotation relative to that calibration. Character-facing and world-fixed framing remain unchanged at activation; explicitly choosing Bone rotation still uses its raw orientation. This calibration is a snapshot of the activation pose, not a reference-pose assumption.
+
+The supplied logs show two managed rendering faults during redraw: the subject became unavailable between preparation and matrix submission, then the missing capture triggered another failure. They do not contain evidence of a game-process crash. Missing or replaced models now pause the current portrait instead of disabling rendering. Already-submitted markers drain; unsubmitted captures cancel without suppressing the main view. Capturing retries automatically when the model returns.
+
+Model identity includes actor ID/address, DrawObject, skeleton, Havok pose, and Havok skeleton. Model-generation changes reset camera calibration and smoothing. Unready skeletons clear bone-name caches and published portraits. A locked subject's identity survives temporary absence, but it must match both ID and address before recovery. True hook/capture errors still stop rendering; a prior fault does not generate an additional missing-submission error.
+
+Validation includes Release compilation, 38 camera/configuration checks, and 77 offline ABI/scheduling/D3D11 checks. Regressions cover 90-degree bone axes, stable landmarks after calibration, model replacement recalibration, opt-in migration, disappearance between submission stages, and draining already-submitted frames. These use synthetic geometry and model identities, not a running Glamourer/FFXIV instance. In-game redraw and animation timing remain validation items in [RUNTIME_VALIDATION.md](RUNTIME_VALIDATION.md).

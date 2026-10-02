@@ -16,7 +16,7 @@ Save, then search for **Dynamic Portrait** in `/xlplugins` and install it.
 
 Use `/dportrait` to open settings and click **Start rendering**. Rendering starts disabled whenever the plugin loads.
 
-The default subject is your character's **Chest** (`j_sebo_c`). **Lock bone in frame** is enabled by default: the camera follows the bone's position and rotation immediately, keeping its rigid pose fixed in the portrait while the rest of the character and scene move. Choose **Head** for a stabilized head camera. Facial expressions and other deformation still animate. Unlock to use character/world orientation and smoothing.
+The default subject is your character's **Chest** (`j_sebo_c`). **Lock bone in frame** is optional and defaults to off. Enable it for immediate bone tracking: it calibrates against the selected orientation, then follows changes in bone position and rotation without smoothing lag. Choose **Head** for a stabilized head camera. Facial expressions and other deformation still animate. Unlock to use ordinary orientation and smoothing controls. Model redraws temporarily pause capture and resume when the new model is ready.
 
 Settings are organized into **Camera**, **Output**, **Window**, and **Diagnostics** tabs. The output's longest edge defaults to 1024 pixels and supports up to 4096; the default window size is 340 × 380. Diagnostic mode copies the main view and disables camera controls.
 

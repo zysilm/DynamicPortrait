@@ -18,6 +18,7 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
     private ulong lastId;
     public nint CurrentAddress { get; private set; }
     public ulong CurrentId { get; private set; }
+    public SubjectIdentity CurrentIdentity { get; private set; }
 
     public bool LockTarget()
     {
@@ -35,6 +36,7 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
         LockedName = "None";
         CurrentAddress = 0;
         CurrentId = 0;
+        CurrentIdentity = default;
         lastSkeleton = lastHavok = 0;
         Bones = [];
     }
@@ -49,9 +51,12 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
             _ => lockedId.HasValue ? objects.FirstOrDefault(o => o.GameObjectId == lockedId && o.Address == lockedAddress) as ICharacter : null,
         };
         CurrentAddress = 0;
+        CurrentId = 0;
+        CurrentIdentity = default;
         if (actor == null)
         {
-            if (config.Subject == SubjectMode.Locked) { lockedId = null; lockedAddress = 0; }
+            // Keep the locked identity across temporary disappearance during
+            // redraw. Both ID and address must match before it can resume.
             Bones = [];
             lastSkeleton = lastHavok = 0;
             Status = "Subject unavailable";
@@ -61,20 +66,18 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
         var draw = obj->DrawObject;
         if (draw == null || draw->GetObjectType() != ObjectType.CharacterBase)
         {
-            Status = "Character model is not ready";
-            return false;
+            return NotReady("Character model is not ready");
         }
         var skeleton = ((CharacterBase*)draw)->Skeleton;
         if (skeleton == null || skeleton->PartialSkeletonCount == 0 || skeleton->PartialSkeletons == null)
         {
-            Status = "Skeleton is not ready";
-            return false;
+            return NotReady("Skeleton is not ready");
         }
         // Body/root partial only: attached weapon/accessory partials need their own parent transforms.
         var pose = skeleton->PartialSkeletons[0].GetHavokPose(0);
-        if (pose == null || pose->Skeleton == null) { Status = "Pose is not ready"; return false; }
+        if (pose == null || pose->Skeleton == null) return NotReady("Pose is not ready");
         var havok = pose->Skeleton;
-        if (havok->Bones.Length is <= 0 or > 4096 || havok->Bones.Data == null) return false;
+        if (havok->Bones.Length is <= 0 or > 4096 || havok->Bones.Data == null) return NotReady("Bone list is not ready");
         if (lastSkeleton != (nint)skeleton || lastHavok != (nint)havok || lastId != actor.GameObjectId || Bones.Length != havok->Bones.Length)
         {
             Bones = Enumerable.Range(0, havok->Bones.Length).Select(i => havok->Bones[i].Name.String ?? "").ToArray();
@@ -85,7 +88,7 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
         var index = Array.IndexOf(Bones, config.BoneName);
         if (index < 0) { Status = $"Bone '{config.BoneName}' not found"; return false; }
         var model = pose->GetSyncedPoseModelSpace();
-        if (model == null || model->Data == null || index >= model->Length) return false;
+        if (model == null || model->Data == null || index >= model->Length) return NotReady("Model pose is not ready");
         var t = model->Data[index];
         var root = skeleton->Transform;
         var rootRotation = new Quaternion(root.Rotation.X, root.Rotation.Y, root.Rotation.Z, root.Rotation.W);
@@ -94,11 +97,20 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
         var rotation = rootRotation * new Quaternion(t.Rotation.X, t.Rotation.Y, t.Rotation.Z, t.Rotation.W);
         if (!float.IsFinite(position.X + position.Y + position.Z) || !float.IsFinite(actor.Rotation)
             || !float.IsFinite(rotation.LengthSquared()) || rotation.LengthSquared() < 0.01f)
-            return false;
+            return NotReady("Bone transform is not ready");
         result = new BonePose(position, Quaternion.Normalize(rotation), actor.Rotation);
         CurrentAddress = actor.Address;
         CurrentId = actor.GameObjectId;
+        CurrentIdentity = new(actor.GameObjectId, actor.Address, (nint)draw, (nint)skeleton, (nint)pose, (nint)havok);
         Status = $"{actor.Name.TextValue} / {config.BoneName}";
         return true;
+    }
+
+    private bool NotReady(string status)
+    {
+        Bones = [];
+        lastSkeleton = lastHavok = 0;
+        Status = status;
+        return false;
     }
 }

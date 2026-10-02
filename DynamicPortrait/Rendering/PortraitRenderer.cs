@@ -44,17 +44,15 @@ internal sealed unsafe class PortraitRenderer : IDisposable
     private readonly PortraitTextures textures = new();
     private readonly RenderCommandQueue queue = new();
     private readonly CaptureCycle cycle = new();
+    private readonly PortraitSubjectFrame subjectFrame = new();
     private long captureId;
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private double lastCapture = -1;
     private double lastPoseTime;
-    private ulong lastSubject;
-    private nint lastSubjectAddress;
+    private SubjectIdentity lastSubject;
     private string lastBone = "";
     private OrientationMode lastOrientation;
     private bool lastLockBone;
-    private ulong submittedSubject;
-    private nint submittedSubjectAddress;
     private bool poseReady;
     private CameraPose pose;
     private int sourceWidth, sourceHeight, cropWidth, cropHeight;
@@ -183,7 +181,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             SubjectReady = false;
             Fault = null;
             solver.Reset();
-            lastSubject = 0;
+            lastSubject = default;
             lastCapture = -1;
             lastPoseTime = 0;
             resolution = requestedResolution = config.Resolution;
@@ -257,11 +255,11 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                     {
                         SubjectReady = subjects.TryRead(config, out _);
                         Status = subjects.Status;
+                        if (!SubjectReady) PauseForSubject(subjects.Status);
                         if (SubjectReady && GameTextureSource.TryBackbufferSize(out sourceWidth, out sourceHeight))
                         {
                             var now = clock.Elapsed.TotalSeconds;
-                            submittedSubject = subjects.CurrentId;
-                            submittedSubjectAddress = subjects.CurrentAddress;
+                            subjectFrame.Begin(subjects.CurrentIdentity);
                             (cropWidth, cropHeight) = PortraitCamera.Crop(sourceWidth, sourceHeight, resolution, aspect);
                             render = cycle.TryBegin(now, out var nextId);
                             if (render) { captureId = nextId; lastCapture = now; }
@@ -296,10 +294,20 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                     if (stopping) return result;
                     if (!captureQueued)
                     {
+                        // Redraw can also remove the camera callback entirely.
+                        // Recheck the model before treating a missing marker as
+                        // a pipeline fault, while keeping real queue errors fatal.
+                        if (Enabled && !subjectFrame.Unavailable)
+                        {
+                            var ready = subjects.TryRead(config, out _);
+                            if (!subjectFrame.Accept(ready, subjects.CurrentIdentity))
+                                PauseForSubject(ready ? "Character model changed before capture submission" : subjects.Status);
+                        }
                         if (cameraApplied) cycle.CaptureExecuted(captureId);
                         else cycle.CancelBeforeSubmission(captureId);
                         cameraOverride.Restore();
-                        Fail(new InvalidOperationException($"Portrait capture was not submitted (cameraApplied={cameraApplied}). No render-thread completion is required at tick return."));
+                        if (!subjectFrame.Unavailable && Enabled && Fault == null)
+                            Fail(new InvalidOperationException($"Portrait capture was not submitted (cameraApplied={cameraApplied}). No render-thread completion is required at tick return."));
                     }
                 }
             }
@@ -320,26 +328,28 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         {
             if (cameraOverride.Matches(camera)) cameraOverride.Restore();
             matrices!.Original(camera, ptr);
-            if (!inPortrait || stopping || !Enabled) return;
+            if (!inPortrait || stopping || !Enabled || subjectFrame.Unavailable) return;
             try
             {
                 var manager = SceneCameraManager.Instance();
                 if (manager == null || manager->CameraIndex is < 0 or >= 14) return;
                 var current = manager->CurrentCamera;
                 if (current == null || current->RenderCamera == null || (nint)current->RenderCamera != camera) return;
+                var ready = subjects.TryRead(config, out var bone);
+                if (!subjectFrame.Accept(ready, subjects.CurrentIdentity))
+                {
+                    PauseForSubject(ready ? "Character model changed during portrait submission" : subjects.Status);
+                    return;
+                }
                 if (!poseReady)
                 {
                     // Resolve again at camera submission, after the original native
                     // update, instead of framing the pose from before this tick.
-                    if (!subjects.TryRead(config, out var bone) || subjects.CurrentId != submittedSubject
-                        || subjects.CurrentAddress != submittedSubjectAddress)
-                        throw new InvalidOperationException("Portrait subject became unavailable or changed before camera submission.");
-                    if (lastSubject != subjects.CurrentId || lastSubjectAddress != subjects.CurrentAddress
+                    if (lastSubject != subjects.CurrentIdentity
                         || lastBone != config.BoneName || lastOrientation != config.Orientation || lastLockBone != config.LockBone)
                     {
                         solver.Reset();
-                        lastSubject = subjects.CurrentId;
-                        lastSubjectAddress = subjects.CurrentAddress;
+                        lastSubject = subjects.CurrentIdentity;
                         lastBone = config.BoneName;
                         lastOrientation = config.Orientation;
                         lastLockBone = config.LockBone;
@@ -436,7 +446,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 {
                     try
                     {
-                        if (!stopping && Enabled && !MainViewOnly)
+                        if (!stopping && Enabled && !MainViewOnly && !subjectFrame.Unavailable && SubjectReady)
                         {
                             SwapChainCapture.CaptureRegion(textures, (Silk.NET.DXGI.IDXGISwapChain*)swapChain->DXGISwapChain,
                                 (Silk.NET.Direct3D11.ID3D11DeviceContext*)device->D3D11DeviceContext,
@@ -477,6 +487,17 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         Fault = e.Message;
         Status = "Rendering stopped after an error";
         log.Error(e, "DynamicPortrait rendering failure");
+    }
+
+    private void PauseForSubject(string reason)
+    {
+        SubjectReady = false;
+        solver.Reset();
+        lastSubject = default;
+        textures.ClearPublished();
+        Status = $"Waiting for subject: {reason}";
+        // Rendering stays armed. The next ready model starts a fresh frame,
+        // recalibrates bone axes, and resumes without a manual restart.
     }
 
     private void TraceEvent(string message)

@@ -200,7 +200,7 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             ImGui.Separator();
             ImGui.TextUnformatted("Tracking");
             dirty |= ImGui.Checkbox("Lock bone in frame", ref config.LockBone);
-            Help("Follow the bone's position and rotation immediately. Smoothing and orientation apply only when unlocked.");
+            Help("Calibrate against the selected orientation, then follow bone motion immediately. Smoothing and orientation controls apply only when unlocked.");
             ImGui.BeginDisabled(config.LockBone);
             var orientation = (int)config.Orientation;
             if (ImGui.Combo("Orientation", ref orientation, "Character facing\0Bone rotation\0World fixed\0"))

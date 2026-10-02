@@ -31,6 +31,7 @@ internal static unsafe class Program
         CheckAbi(typeof(NativeCallbacks.Tick), typeof(Framework), "Tick");
         CheckAbi(typeof(NativeCallbacks.Ui), typeof(AtkServer), "ProcessUICommandsAlt");
         TestDelayedCommands();
+        TestSubjectRedraw();
         TestFallback();
         CameraStateTest.Run();
 
@@ -216,6 +217,45 @@ internal static unsafe class Program
         try { RenderCommandQueue.CreateFallback(null); }
         catch (ArgumentNullException) { refusedNull = true; }
         Check("Null target cannot become a queued marker", refusedNull);
+    }
+
+    private static void TestSubjectRedraw()
+    {
+        var subject = new SubjectIdentity(42, 100, 200, 300, 400, 500);
+        var replacement = subject with { DrawObject = 201, Skeleton = 301, Pose = 401, Havok = 501 };
+        var frame = new PortraitSubjectFrame();
+        var cycle = new CaptureCycle();
+        cycle.TryBegin(0, out var id);
+        frame.Begin(subject);
+        Check("Ready subject can submit portrait matrices", frame.Accept(true, subject));
+        Check("Temporary missing model pauses this submission", !frame.Accept(false, default) && frame.Unavailable);
+        Check("Same-frame recovery cannot reuse an invalidated pose", !frame.Accept(true, subject));
+        cycle.CancelBeforeSubmission(id);
+        Check("Redraw before camera submission cancels without suppressing main Present", !cycle.HasPending && !cycle.ConsumePortraitPresent());
+        Check("Next portrait can retry without restarting rendering", cycle.TryBegin(1, out id));
+        frame.Begin(replacement);
+        Check("New model generation resumes on the next frame", frame.Accept(true, replacement));
+        cycle.CaptureExecuted(id);
+        Check("Resumed portrait drains through the matching Present", cycle.ConsumePresent(out var completed, out var suppress) && completed == id && suppress);
+
+        cycle.TryBegin(2, out id);
+        frame.Begin(subject);
+        foreach (var changed in new[]
+        {
+            subject with { DrawObject = 201 }, subject with { Skeleton = 301 },
+            subject with { Pose = 401 }, subject with { Havok = 501 },
+            subject with { Id = 43 }, subject with { Address = 101 },
+        })
+        {
+            frame.Begin(subject);
+            Check($"Replacement identity {changed} cannot use the previous model snapshot", !frame.Accept(true, changed));
+        }
+        // A marker already in the render queue must survive invalidation. It
+        // drains once, suppresses that view, and cannot suppress the next frame.
+        cycle.CaptureExecuted(id);
+        Check("Redraw after submission preserves exactly one draining Present", frame.Unavailable
+            && cycle.ConsumePresent(out completed, out suppress) && completed == id && suppress && !cycle.ConsumePortraitPresent());
+        Check("Already-submitted redraw does not block recovery", cycle.TryBegin(3, out _));
     }
 
     private static bool HasGeometry(byte[] rgba)
