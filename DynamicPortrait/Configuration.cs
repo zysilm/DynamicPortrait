@@ -6,6 +6,7 @@ namespace DynamicPortrait;
 
 public enum SubjectMode { Self, CurrentTarget, Locked }
 public enum OrientationMode { Character, Bone, World }
+public enum RenderBackend { FullTick, RenderOnly }
 
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
@@ -31,6 +32,7 @@ public sealed class Configuration : IPluginConfiguration
     public float Smoothing = 0.08f;
     public int RefreshRate = 60;
     public int Resolution = 1024;
+    public RenderBackend Backend;
 
     public void ResetDefaults()
     {
@@ -56,6 +58,7 @@ public sealed class Configuration : IPluginConfiguration
         Smoothing = defaults.Smoothing;
         RefreshRate = defaults.RefreshRate;
         Resolution = defaults.Resolution;
+        Backend = defaults.Backend;
     }
 
     // Rendering deliberately requires a fresh /dportrait on each plugin load.
@@ -67,6 +70,7 @@ public sealed class Configuration : IPluginConfiguration
         if (Version < 2) { LockBone = false; Version = 2; }
         if (!Enum.IsDefined(Subject)) Subject = SubjectMode.Self;
         if (!Enum.IsDefined(Orientation)) Orientation = OrientationMode.Character;
+        if (!Enum.IsDefined(Backend)) Backend = RenderBackend.FullTick;
         BoneName = string.IsNullOrWhiteSpace(BoneName) ? "j_sebo_c" : BoneName[..Math.Min(128, BoneName.Length)];
         Yaw = Finite(Yaw, 0, -180, 180);
         Pitch = Finite(Pitch, -5.6f, -85, 85);

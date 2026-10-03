@@ -20,6 +20,11 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PortraitUi windows;
     private RenderInvestigation? investigation;
     private bool disposed;
+    private readonly IFramework framework;
+    private readonly IGameInteropProvider interop;
+    private readonly ISigScanner scanner;
+    private readonly IPluginLog log;
+    private DateTime nextRequestCheck;
 
     public Plugin(IDalamudPluginInterface pi, ICommandManager commands, IClientState client,
         IObjectTable objects, ITargetManager targets, IGameInteropProvider interop,
@@ -28,6 +33,10 @@ public sealed class Plugin : IDalamudPlugin
         this.pi = pi;
         this.commands = commands;
         this.client = client;
+        this.framework = framework;
+        this.interop = interop;
+        this.scanner = scanner;
+        this.log = log;
         config = pi.GetPluginConfig() as Configuration ?? new Configuration();
         config.Normalize();
         subjects = new SubjectResolver(objects, targets);
@@ -38,6 +47,13 @@ public sealed class Plugin : IDalamudPlugin
         pi.UiBuilder.OpenConfigUi += windows.OpenSettings;
         pi.UiBuilder.OpenMainUi += windows.OpenSettings;
         client.TerritoryChanged += OnTerritory;
+        framework.Update += PollInvestigation;
+    }
+
+    private void PollInvestigation(IFramework _)
+    {
+        if (disposed || DateTime.UtcNow < nextRequestCheck) return;
+        nextRequestCheck = DateTime.UtcNow.AddMilliseconds(250);
         var requestPath = Path.Combine(pi.ConfigDirectory.FullName, "render-investigation.request.json");
         if (File.Exists(requestPath))
         {
@@ -46,13 +62,13 @@ public sealed class Plugin : IDalamudPlugin
                 var request = JsonSerializer.Deserialize<RenderInvestigation.Request>(File.ReadAllText(requestPath));
                 File.Delete(requestPath);
                 if (request != null && request.ExpiresUtc.ToUniversalTime() > DateTime.UtcNow)
-                    _ = framework.RunOnTick(() =>
                     {
-                        if (disposed) return;
+                        if (investigation?.IsRunning == true) return;
+                        investigation?.Dispose();
                         try { investigation = new(renderer, framework, interop, scanner, log,
-                            Path.Combine(pi.ConfigDirectory.FullName, "diagnostics"), request.SecondsPerPhase); }
+                            Path.Combine(pi.ConfigDirectory.FullName, "diagnostics"), request); }
                         catch (Exception e) { log.Error(e, "Could not start render investigation"); }
-                    }, delayTicks: 10);
+                    }
             }
             catch (Exception e) { log.Error(e, "Could not consume render investigation request"); }
         }
@@ -82,6 +98,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         disposed = true;
+        framework.Update -= PollInvestigation;
         pi.UiBuilder.Draw -= windows.Draw;
         pi.UiBuilder.OpenConfigUi -= windows.OpenSettings;
         pi.UiBuilder.OpenMainUi -= windows.OpenSettings;

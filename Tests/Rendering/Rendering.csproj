@@ -16,6 +16,8 @@
     <Compile Include="../../DynamicPortrait/Rendering/PortraitTextures.cs" Link="PortraitTextures.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/OpaqueTexturePass.cs" Link="OpaqueTexturePass.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/SwapChainCapture.cs" Link="SwapChainCapture.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/LegacyPortraitTiming.cs" Link="LegacyPortraitTiming.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/SpatialAntialiasingScope.cs" Link="SpatialAntialiasingScope.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/CaptureCycle.cs" Link="CaptureCycle.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/PortraitSubjectFrame.cs" Link="PortraitSubjectFrame.cs" />
     <Compile Include="../../DynamicPortrait/Camera/SubjectIdentity.cs" Link="SubjectIdentity.cs" />
@@ -23,6 +25,7 @@
     <Compile Include="../../DynamicPortrait/Rendering/RenderCommandQueue.cs" Link="RenderCommandQueue.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/NativeCallbacks.cs" Link="NativeCallbacks.cs" />
     <Compile Include="../../DynamicPortrait/Rendering/InvestigationSamples.cs" Link="InvestigationSamples.cs" />
+    <Compile Include="../../DynamicPortrait/Rendering/FrameReadback.cs" Link="FrameReadback.cs" />
     <Compile Include="../../DynamicPortrait/Camera/PortraitCamera.cs" Link="PortraitCamera.cs" />
     <Compile Include="../../DynamicPortrait/Configuration.cs" Link="Configuration.cs" />
     <Compile Include="../CameraMath/ConfigurationContract.cs" Link="ConfigurationContract.cs" />

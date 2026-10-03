@@ -216,7 +216,17 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         ImGui.PushItemWidth(-160);
         try
         {
-            dirty |= ImGui.SliderInt("Refresh limit", ref config.RefreshRate, 1, 60, "%d FPS");
+            ImGui.BeginDisabled(renderer.Enabled);
+            var backend = (int)config.Backend;
+            if (ImGui.Combo("Render backend", ref backend, "Full tick (legacy)\0Render only (experimental)\0"))
+            { config.Backend = (RenderBackend)backend; dirty = true; }
+            ImGui.EndDisabled();
+            if (config.Backend == RenderBackend.RenderOnly)
+                ImGui.TextWrapped("Investigation only: character view matrices are not yet correct. Use Full tick (legacy) for portraits.");
+            if (config.Backend == RenderBackend.FullTick)
+                ImGui.TextWrapped("Portrait refresh follows game frames automatically. The additional tick does not advance simulation time.");
+            else
+                dirty |= ImGui.SliderInt("Refresh limit", ref config.RefreshRate, 1, 60, "%d FPS");
             dirty |= ImGui.SliderInt("Output long edge", ref config.Resolution, 128, 4096, "%d px");
             ImGui.TextWrapped("Output is a centered crop. The additional scene render still uses the game's resolution.");
         }
@@ -239,7 +249,11 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         ImGui.BeginDisabled(renderer.Enabled);
         var mainViewOnly = renderer.MainViewOnly;
         if (ImGui.Checkbox("Capture main view only", ref mainViewOnly)) renderer.SetMainViewOnly(mainViewOnly);
+        var spatialAntialiasing = renderer.SpatialAntialiasingTest;
+        if (ImGui.Checkbox("Use FXAA for both views (test)", ref spatialAntialiasing))
+            renderer.SetSpatialAntialiasingTest(spatialAntialiasing);
         ImGui.EndDisabled();
+        ImGui.TextWrapped("FXAA test temporarily bypasses temporal AA and temporal upscaling in legacy rendering. Stop rendering to change it. Saved game graphics settings are unchanged.");
         ImGui.TextWrapped("Stop rendering before changing modes. Main-view capture includes game UI and uses no second camera or extra tick.");
         ImGui.Separator();
         var texture = renderer.Texture;
@@ -249,6 +263,7 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
             {
                 Stat("Normal ticks", renderer.NormalTicks.ToString());
                 Stat("Portrait ticks", renderer.PortraitTicks.ToString());
+                Stat("Render-only submissions", renderer.RenderOnlySubmissions.ToString());
                 Stat("Captures", renderer.CapturedFrames.ToString());
                 Stat("Suppressed presents", renderer.SkippedPresents.ToString());
                 Stat("UI draws", renderer.UiDraws.ToString());

@@ -19,6 +19,7 @@ public sealed unsafe class SubjectResolver(IObjectTable objects, ITargetManager 
     public nint CurrentAddress { get; private set; }
     public ulong CurrentId { get; private set; }
     public SubjectIdentity CurrentIdentity { get; private set; }
+    internal nint LocalPlayerAddress => objects.LocalPlayer?.Address ?? 0;
 
     public bool LockTarget()
     {

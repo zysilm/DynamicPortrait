@@ -8,6 +8,12 @@ namespace DynamicPortrait.Rendering;
 
 internal static unsafe class SwapChainCapture
 {
+    public static void Export(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, string path)
+    {
+        var buffer = Acquire(swapChain);
+        try { FrameReadback.Export(buffer, context, path); }
+        finally { buffer->Release(); }
+    }
     // GetBuffer returns an owned COM reference. Do not retain it across resize.
     public static void Capture(PortraitTextures destination, IDXGISwapChain* swapChain,
         ID3D11DeviceContext* context, int resolution, float aspect)

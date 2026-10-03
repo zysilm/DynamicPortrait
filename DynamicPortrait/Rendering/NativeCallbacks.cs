@@ -11,6 +11,11 @@ internal static unsafe class NativeCallbacks
     // Keep these ABI contracts separate so the offline tests can compare them against
     // the host's generated FFXIVClientStructs delegates without initializing the game.
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void CameraUpdate(FFXIVClientStructs.FFXIV.Client.Game.CameraBase* camera);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void Ui3DUpdate(nint module);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate bool Tick(Framework* framework);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void Present(SwapChain* swapChain);

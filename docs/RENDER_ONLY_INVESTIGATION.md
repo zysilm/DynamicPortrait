@@ -32,7 +32,7 @@ Local IDA metadata names separate framework tasks for camera update, scene updat
 
 The legacy xivr-Ex task loop executes all tasks and uses fixed indices from an old client. The maintained FFXIV VR implementation still invokes two whole ticks. Neither provides a verified render-only backend to copy. Local View/SubView definitions also contain layout/version TODOs, so view indices and attachment fields need verification before use.
 
-## Next experiment: Observe before replaying
+## Initial observation
 
 ### Automated live investigation
 
@@ -42,7 +42,7 @@ The dev plugin accepts a one-shot `render-investigation.request.json` in its Dal
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/Start-RenderInvestigation.ps1 -Foreground
 ```
 
-The script touches the Release DLL to request a reload. `-Foreground` temporarily brings the running game forward, waits for the report, and restores the previous foreground window if the user has not already selected another one. It does not send game input. Omit the switch to leave window focus unchanged.
+The running plugin polls the request file; sampling does not touch the Release DLL or trigger a reload. `-Foreground` temporarily brings the running game forward, waits for the report, and restores the previous foreground window if the user has not already selected another one. It does not send game input. Omit the switch to leave window focus unchanged.
 
 The plugin samples 12 seconds of the normal tick followed by 12 seconds of the existing portrait backend, then stops rendering automatically. It temporarily bypasses portrait-window visibility for this finite comparison, while retaining loading/login/cutscene checks. It does not change saved settings, window geometry, or session diagnostic mode. The portrait phase still uses the existing second tick; observation hooks never replay additional native functions.
 
@@ -88,3 +88,14 @@ Begin with a fixed camera and low update frequency. Keep the existing backend av
 - Compare normal/portrait/copy CPU times and frame pacing against the current backend in the same scene. Evaluate GPU cost separately; a render-only backend still incurs additional scene rendering.
 
 Only after this prototype works should worker-thread command preparation or delayed presentation be considered. The engine's own render jobs are the first parallelism mechanism to investigate. Offline tests cannot establish safe game render-task reentry or the correct runtime ordering.
+
+## Implemented experiment
+
+Version 0.1.0.13 included the optional render-only prototype, which subsequently crashed in animation job execution. Version 0.1.0.14 removes unsafe scene replay. Bounded live runs no longer reproduce that fault, but actual frame exports fail character-orientation validation. RenderOnly is therefore investigation-only, and ordinary Start requests remain stopped. See [crash analysis and live results](RENDER_ONLY_CRASH_0.1.0.14.md). Observation hooks remain passive; only explicit finite requests activate the extra graphics submission.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/Start-RenderInvestigation.ps1 -Backend RenderOnly -SecondsPerPhase 12
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/Start-RenderInvestigation.ps1 -Backend RenderOnly -SecondsPerPhase 5 -CaptureLimit 3 -ExportFrames
+```
+
+`-RefreshLimit` applies a temporary capture cap (1-60). `-CaptureLimit` ends the portrait phase after the requested copies. `-ExportFrames` explicitly enables staging readback of actual game buffers, producing `main.png`, `portrait.png`, and, after at least two captures, `main-after.png`. Readback can stall the GPU; omit exports for performance comparisons. No saved settings are changed by these overrides.

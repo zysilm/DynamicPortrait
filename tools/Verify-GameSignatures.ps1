@@ -45,6 +45,9 @@ if ($RenderCandidates) {
         @{ Name = 'RenderManager.Render'; Signature = '40 53 57 41 54 41 55 48 83 EC ?? 65 48 8B 04 25' }
         @{ Name = 'RenderManager.RenderView'; Signature = 'E8 ?? ?? ?? ?? FF C5 49 83 C6 ?? BA' }
         @{ Name = 'TaskManager.ExecuteAllTasks'; Signature = 'E8 ?? ?? ?? ?? 48 8B 8B ?? ?? ?? ?? 48 85 C9 74 ?? F3 0F 10 8B' }
+        @{ Name = 'Device.BeginBatch'; Signature = 'E8 ?? ?? ?? ?? F3 0F 10 83 ?? ?? ?? ?? E8' }
+        @{ Name = 'Device.EndBatch'; Signature = '48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 B8 30 43 00 00' }
+        @{ Name = 'RenderManager.Update'; Signature = '40 56 48 83 EC ?? 48 8B F1 44 0F 29 54 24 ?? 8B 89 ?? ?? ?? ?? 44 0F 28 D1' }
     )
 }
 $failed = $false
@@ -59,7 +62,7 @@ foreach ($entry in $entries) {
         $target
     } | Select-Object -Unique)
     if ($targets.Count -ne 1) {
-        Write-Output "FAIL $($entry.Name): $($hits.Count) matches, $($targets.Count) destinations: $sig"
+        Write-Output "FAIL $($entry.Name): $($hits.Count) matches, $($targets.Count) destinations ($($targets -join ', ')): $sig"
         $failed = $true
     } else {
         Write-Output ('PASS {0}: RVA 0x{1:X} ({2} sites): {3}' -f $entry.Name, $targets[0], $hits.Count, $sig)

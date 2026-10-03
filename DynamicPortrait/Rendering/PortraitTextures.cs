@@ -64,6 +64,16 @@ internal sealed unsafe class PortraitTextures : IDisposable
         lock (gate) return (front, width, height);
     }
 
+    public void ExportPublished(ID3D11DeviceContext* context, string path)
+    {
+        lock (gate)
+        {
+            foreach (var slot in slots)
+                if ((nint)slot.OpaqueView == front && front != 0)
+                { FrameReadback.Export(slot.OpaqueTexture, context, path); return; }
+        }
+    }
+
     // Host-independent D3D11 implementation, also executed by the offline WARP tests.
     public void Capture(ID3D11Texture2D* source, ID3D11DeviceContext* context, int requestedWidth, int requestedHeight)
     {

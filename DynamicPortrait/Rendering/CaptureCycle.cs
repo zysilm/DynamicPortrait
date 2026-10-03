@@ -2,7 +2,7 @@
 namespace DynamicPortrait.Rendering;
 
 /// <summary>One outstanding portrait; CPU submission and render-thread completion are independent.</summary>
-internal sealed class CaptureCycle
+internal sealed class CaptureCycle : IDisposable
 {
     private readonly object gate = new();
     private long sequence;
@@ -10,6 +10,8 @@ internal sealed class CaptureCycle
     private long awaitingPresent;
     private double startedAt;
     private bool suppressPresent;
+    private readonly ManualResetEventSlim completed = new(false);
+    private long completedId;
     public bool HasPending { get { lock (gate) return active != 0; } }
 
     public bool TryBegin(double now, out long id, bool suppress = true)
@@ -19,6 +21,7 @@ internal sealed class CaptureCycle
             id = 0;
             if (active != 0) return false;
             id = active = ++sequence;
+            completed.Reset();
             startedAt = now;
             suppressPresent = suppress;
             return true;
@@ -34,6 +37,20 @@ internal sealed class CaptureCycle
     }
 
     public bool ConsumePortraitPresent() => ConsumePresent(out var suppress) && suppress;
+
+    public void CompleteWithoutPresent(long id)
+    {
+        lock (gate)
+        {
+            if (active != id) return;
+            active = awaitingPresent = 0;
+            Volatile.Write(ref completedId, id);
+            completed.Set();
+        }
+    }
+
+    public bool WaitForCompletion(long id, int milliseconds)
+        => completed.Wait(milliseconds) && Volatile.Read(ref completedId) == id;
 
     public bool ConsumePresent(out bool suppress)
         => ConsumePresent(out _, out suppress);
@@ -60,4 +77,6 @@ internal sealed class CaptureCycle
     {
         lock (gate) return active != 0 && now - startedAt > 3;
     }
+
+    public void Dispose() => completed.Dispose();
 }

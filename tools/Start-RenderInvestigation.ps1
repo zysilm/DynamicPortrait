@@ -2,13 +2,26 @@
 param(
     [ValidateRange(5, 30)][int]$SecondsPerPhase = 12,
     [string]$PluginDll = "$PSScriptRoot/../DynamicPortrait/bin/Release/DynamicPortrait.dll",
-    [switch]$Foreground
+    [switch]$Foreground,
+    [ValidateSet('FullTick','RenderOnly')][string]$Backend = 'FullTick',
+    [ValidateRange(0,1000)][int]$CaptureLimit = 0,
+    # Zero uses normal game-synchronized legacy capture.
+    [ValidateRange(0,60)][int]$RefreshLimit = 60,
+    [switch]$ReplayGameplayCamera,
+    [switch]$SpatialAntialiasing,
+    [switch]$ExportFrames
 )
 $ErrorActionPreference = 'Stop'
 $pluginPath = (Resolve-Path -LiteralPath $PluginDll).Path
 $directory = Join-Path $env:APPDATA 'XIVLauncher/pluginConfigs/DynamicPortrait'
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $request = @{ ExpiresUtc = [DateTime]::UtcNow.AddMinutes(3).ToString('o'); SecondsPerPhase = $SecondsPerPhase }
+$request.Backend = [int]($Backend -eq 'RenderOnly')
+$request.CaptureLimit = $CaptureLimit
+$request.RefreshLimit = $RefreshLimit
+$request.ExportFrames = [bool]$ExportFrames
+$request.ReplayGameplayCamera = [bool]$ReplayGameplayCamera
+$request.SpatialAntialiasing = [bool]$SpatialAntialiasing
 $requestPath = Join-Path $directory 'render-investigation.request.json'
 if ($Foreground) {
     Add-Type @'
@@ -38,8 +51,7 @@ public static class PortraitInvestigationWindow {
 }
 $startedUtc = [DateTime]::UtcNow
 [IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json))
-# Dalamud's enabled dev-plugin watcher reloads on LastWrite changes.
-(Get-Item -LiteralPath $pluginPath).LastWriteTimeUtc = [DateTime]::UtcNow
+# The running plugin polls this request without triggering a dev-plugin reload.
 Write-Output "Requested finite investigation; reports: $directory/diagnostics"
 if ($Foreground) {
     try {

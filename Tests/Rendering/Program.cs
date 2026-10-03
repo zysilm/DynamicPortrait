@@ -28,11 +28,63 @@ internal static unsafe class Program
         Directory.CreateDirectory(output);
         CheckAbi(typeof(NativeCallbacks.Present), typeof(SwapChain), "Present");
         CheckAbi(typeof(NativeCallbacks.SetTarget), typeof(ImmediateContext), "DoSetTargetCommand");
+        var timingFrame = new Framework { PerformanceCounterValue = 123456,
+            FrameDeltaTime = 0.02f, RealFrameDeltaTime = 0.03f,
+            NextFrameDeltaTimeOverride = 0.04f, FrameDeltaTimeOverride = 0.05f,
+            FrameDeltaTimeMSInt = 20, FrameDeltaTimeUSInt = 20000,
+            FrameDeltaTimeMSRem = 0.0004f, FrameDeltaTimeUSRem = 0.0000004f,
+            FrameCounter = 17 };
+        using (new LegacyPortraitTiming(&timingFrame))
+        {
+            Check("Portrait uses native pause and defers the one-shot override",
+                timingFrame.PauseFrameTicksCounter == 1 && timingFrame.NextFrameDeltaTimeOverride == 0);
+            timingFrame.PerformanceCounterValue = 999999;
+            timingFrame.FrameDeltaTime = timingFrame.RealFrameDeltaTime = 0;
+            timingFrame.FrameDeltaTimeMSInt = timingFrame.FrameDeltaTimeUSInt = 0;
+            timingFrame.FrameDeltaTimeMSRem = timingFrame.FrameDeltaTimeUSRem = 0;
+            timingFrame.FrameCounter++;
+        }
+        Check("Normal tick retains its original clock and one-shot override",
+            timingFrame.PerformanceCounterValue == 123456 && timingFrame.NextFrameDeltaTimeOverride == 0.04f
+            && timingFrame.PauseFrameTicksCounter == 0 && timingFrame.FrameDeltaTimeOverride == 0.05f);
+        Check("Portrait restores fractional timing without rolling back native frame IDs",
+            timingFrame.FrameDeltaTime == 0.02f && timingFrame.RealFrameDeltaTime == 0.03f
+            && timingFrame.FrameDeltaTimeMSInt == 20 && timingFrame.FrameDeltaTimeUSInt == 20000
+            && timingFrame.FrameDeltaTimeMSRem == 0.0004f && timingFrame.FrameDeltaTimeUSRem == 0.0000004f
+            && timingFrame.FrameCounter == 18);
+        timingFrame.PauseFrameTicksCounter = 2;
+        using (new LegacyPortraitTiming(&timingFrame)) { }
+        Check("Existing game pause survives portrait submission", timingFrame.PauseFrameTicksCounter == 2);
+        var graphics = new FFXIVClientStructs.FFXIV.Client.Graphics.Render.GraphicsConfig
+        { AntiAliasing = 3, GraphicsRezoUpscaleType = 2, UpdateFlags = 17, GraphicsRezoScale = 0.75f };
+        using (new SpatialAntialiasingScope(&graphics, true))
+            Check("Spatial experiment disables both temporal selection and temporal upscale",
+                graphics.AntiAliasing == 1 && graphics.GraphicsRezoUpscaleType == 0);
+        Check("Spatial experiment restores selections without changing update flags or scale",
+            graphics.AntiAliasing == 3 && graphics.GraphicsRezoUpscaleType == 2
+            && graphics.UpdateFlags == 17 && graphics.GraphicsRezoScale == 0.75f);
+        using (new SpatialAntialiasingScope(&graphics, false))
+            Check("Disabled spatial experiment leaves native selections unchanged",
+                graphics.AntiAliasing == 3 && graphics.GraphicsRezoUpscaleType == 2);
+        try
+        {
+            using var spatial = new SpatialAntialiasingScope(&graphics, true);
+            throw new InvalidOperationException("fixture");
+        }
+        catch (InvalidOperationException) { }
+        Check("Spatial selections are restored on exception", graphics.AntiAliasing == 3 && graphics.GraphicsRezoUpscaleType == 2);
+        using (new SpatialAntialiasingScope(&graphics, true))
+        { graphics.AntiAliasing = 2; graphics.GraphicsRezoUpscaleType = 1; }
+        Check("Spatial experiment preserves settings changed by another callback",
+            graphics.AntiAliasing == 2 && graphics.GraphicsRezoUpscaleType == 1);
+        CheckAbi(typeof(NativeCallbacks.CameraUpdate), typeof(FFXIVClientStructs.FFXIV.Client.Game.CameraBase), "Update");
+        CheckAbi(typeof(NativeCallbacks.CameraUpdate), typeof(FFXIVClientStructs.FFXIV.Client.Game.CameraBase), "UpdateState");
         CheckAbi(typeof(NativeCallbacks.Tick), typeof(Framework), "Tick");
         CheckAbi(typeof(NativeCallbacks.Ui), typeof(AtkServer), "ProcessUICommandsAlt");
         TestDelayedCommands();
         TestSubjectRedraw();
         TestInvestigationSamples();
+        TestRenderOnlyCompletion();
         TestFallback();
         CameraStateTest.Run();
 
@@ -137,6 +189,21 @@ internal static unsafe class Program
             && last.FramePacing.Single().Samples == 1);
     }
 
+    private static void TestRenderOnlyCompletion()
+    {
+        using var cycle = new CaptureCycle();
+        cycle.TryBegin(0, out var id);
+        Check("Render-only fence waits for its render-thread capture", !cycle.WaitForCompletion(id, 0) && cycle.HasPending);
+        cycle.CompleteWithoutPresent(id + 1);
+        Check("Unrelated render marker cannot complete a render-only batch", cycle.HasPending && !cycle.WaitForCompletion(id, 0));
+        cycle.CompleteWithoutPresent(id);
+        Check("Render-only capture completes without suppressing a later main Present", cycle.WaitForCompletion(id, 0)
+            && !cycle.HasPending && !cycle.ConsumePresent(out _));
+        cycle.TryBegin(1, out var next);
+        Check("A reused fence cannot acknowledge the next render-only batch early", !cycle.WaitForCompletion(next, 0));
+        cycle.CompleteWithoutPresent(next);
+    }
+
     private static void CheckAbi(Type ours, Type gameType, string name)
     {
         var delegates = gameType.GetNestedType("Delegates", BindingFlags.Public | BindingFlags.NonPublic)
@@ -153,7 +220,7 @@ internal static unsafe class Program
     {
         using var textures = new PortraitTextures();
         var registry = new RenderCommandQueue();
-        var cycle = new CaptureCycle();
+        using var cycle = new CaptureCycle();
         for (var i = 0; i < 500; i++)
         {
             textures.Capture(gpu.Scene, gpu.Context, 128, 128);
@@ -247,7 +314,7 @@ internal static unsafe class Program
 
     private static void TestDelayedCommands()
     {
-        var cycle = new CaptureCycle();
+        using var cycle = new CaptureCycle();
         Check("Begin portrait cycle", cycle.TryBegin(0, out var first));
         Check("CPU tick return does not imply render completion", !cycle.ConsumePortraitPresent());
         Check("Outstanding frame prevents a second submission", !cycle.TryBegin(0.01, out _));
@@ -301,7 +368,7 @@ internal static unsafe class Program
         var subject = new SubjectIdentity(42, 100, 200, 300, 400, 500);
         var replacement = subject with { DrawObject = 201, Skeleton = 301, Pose = 401, Havok = 501 };
         var frame = new PortraitSubjectFrame();
-        var cycle = new CaptureCycle();
+        using var cycle = new CaptureCycle();
         cycle.TryBegin(0, out var id);
         frame.Begin(subject);
         Check("Ready subject can submit portrait matrices", frame.Accept(true, subject));

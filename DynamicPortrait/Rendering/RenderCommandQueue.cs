@@ -8,7 +8,7 @@ namespace DynamicPortrait.Rendering;
 
 internal sealed unsafe class RenderCommandQueue
 {
-    public readonly record struct CaptureRequest(long Id, int Width, int Height);
+    public readonly record struct CaptureRequest(long Id, int Width, int Height, bool RenderOnly = false);
     private readonly ConcurrentDictionary<nint, CaptureRequest> pending = new();
     public int PendingCount => pending.Count;
 
@@ -25,7 +25,7 @@ internal sealed unsafe class RenderCommandQueue
         return result;
     }
 
-    public bool EnqueueCapture(long id, int width, int height)
+    public bool EnqueueCapture(long id, int width, int height, bool renderOnly = false)
     {
         var device = Device.Instance();
         var target = device == null || device->SwapChain == null ? null : device->SwapChain->BackBuffer;
@@ -40,7 +40,7 @@ internal sealed unsafe class RenderCommandQueue
         // target[0]->Height3 even for count=0 on this client (the 0.1.0.0 crash).
         // The engine owns this frame's target lifetime, as for its other queued binds.
         *marker = CreateFallback(target);
-        if (!Register((nint)marker, new CaptureRequest(id, width, height))) return false;
+        if (!Register((nint)marker, new CaptureRequest(id, width, height, renderOnly))) return false;
         context->PushBackCommand(marker);
         return true;
     }
