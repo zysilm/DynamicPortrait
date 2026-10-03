@@ -4,7 +4,7 @@
   "Punchline": "A live portrait camera following your character's bones.",
   "Description": "Experimental second-view portrait window. Select a character and bone, adjust the camera, and resize the portrait. Includes a legacy dual-tick backend and an experimental render-only backend. Run /dportrait to configure; rendering starts disabled.",
   "InternalName": "DynamicPortrait",
-  "AssemblyVersion": "0.1.0.21",
+  "AssemblyVersion": "0.1.1.0",
   "DalamudApiLevel": 15,
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/zysilm/DynamicPortrait",
