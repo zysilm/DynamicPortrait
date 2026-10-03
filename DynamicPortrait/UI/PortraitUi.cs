@@ -250,6 +250,9 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
         var mainViewOnly = renderer.MainViewOnly;
         if (ImGui.Checkbox("Capture main view only", ref mainViewOnly)) renderer.SetMainViewOnly(mainViewOnly);
         var spatialAntialiasing = renderer.SpatialAntialiasingTest;
+        var reuseMainUiUpdate = renderer.ReuseMainUiUpdate;
+        if (ImGui.Checkbox("Reuse main UI update", ref reuseMainUiUpdate)) renderer.ReuseMainUiUpdate = reuseMainUiUpdate;
+        Help("Avoid repeating game UI updates during the portrait tick. Main-view UI updates and drawing remain enabled. Session only.");
         if (ImGui.Checkbox("Use FXAA for both views (test)", ref spatialAntialiasing))
             renderer.SetSpatialAntialiasingTest(spatialAntialiasing);
         ImGui.EndDisabled();
@@ -268,6 +271,8 @@ internal sealed class PortraitUi(Configuration config, SubjectResolver subjects,
                 Stat("Suppressed presents", renderer.SkippedPresents.ToString());
                 Stat("UI draws", renderer.UiDraws.ToString());
                 Stat("UI draws during portrait", renderer.UiDrawsDuringPortrait.ToString());
+                Stat("UI updates", renderer.UiUpdates.ToString());
+                Stat("Skipped portrait UI updates", renderer.SuppressedUiUpdates.ToString());
                 Stat("Main-chain presents", renderer.MainPresents.ToString());
                 Stat("Portrait tick (CPU)", $"{renderer.LastPortraitMilliseconds:F2} ms");
                 Stat("Normal tick (CPU)", $"{renderer.LastNormalMilliseconds:F2} ms");

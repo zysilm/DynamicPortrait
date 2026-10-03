@@ -9,6 +9,8 @@ param(
     [ValidateRange(0,60)][int]$RefreshLimit = 60,
     [switch]$ReplayGameplayCamera,
     [switch]$SpatialAntialiasing,
+    [switch]$PerformanceOnly,
+    [ValidateSet('Default','On','Off')][string]$ReuseMainUiUpdate = 'Default',
     [switch]$ExportFrames
 )
 $ErrorActionPreference = 'Stop'
@@ -22,6 +24,8 @@ $request.RefreshLimit = $RefreshLimit
 $request.ExportFrames = [bool]$ExportFrames
 $request.ReplayGameplayCamera = [bool]$ReplayGameplayCamera
 $request.SpatialAntialiasing = [bool]$SpatialAntialiasing
+$request.PerformanceOnly = [bool]$PerformanceOnly
+if ($ReuseMainUiUpdate -ne 'Default') { $request.ReuseMainUiUpdate = $ReuseMainUiUpdate -eq 'On' }
 $requestPath = Join-Path $directory 'render-investigation.request.json'
 if ($Foreground) {
     Add-Type @'

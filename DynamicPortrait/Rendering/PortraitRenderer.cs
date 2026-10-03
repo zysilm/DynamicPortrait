@@ -29,6 +29,13 @@ internal sealed unsafe class PortraitRenderer : IDisposable
 
     private Hook<CameraUpdateDelegate>? gameplayCameraUpdate;
     private Hook<NativeCallbacks.Ui3DUpdate>? ui3DUpdate;
+    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+    private delegate void UiUpdateDelegate(nint module, float delta);
+    private Hook<UiUpdateDelegate>? uiUpdate;
+    public bool ReuseMainUiUpdate { get; set; } = true;
+    internal bool? InvestigationReuseMainUiUpdate;
+    public long UiUpdates { get; private set; }
+    public long SuppressedUiUpdates { get; private set; }
     public long SuppressedUi3DUpdates { get; private set; }
     private Hook<TickDelegate>? tick;
     private Hook<PresentDelegate>? present;
@@ -174,6 +181,8 @@ internal sealed unsafe class PortraitRenderer : IDisposable
             gameplayCameraUpdate = interop.HookFromAddress<CameraUpdateDelegate>(gameCameraTable[3], GameplayCameraUpdate);
             ui3DUpdate = interop.HookFromAddress<NativeCallbacks.Ui3DUpdate>(scanner.ScanText(
                 "53 56 57 48 83 EC 30 33 F6 48 89 6C 24 50 4C 89 74 24 60 48 8B F9"), UpdateUi3D);
+            uiUpdate = interop.HookFromAddress<UiUpdateDelegate>(scanner.ScanText(
+                "48 8B C4 41 56 48 83 EC 60 FF 81 D4 08 00 00 4C 8B F1 48 89 58 08 48 81 C1 E0 08 00 00"), UpdateUi);
             // History offsets are verified for this native camera implementation.
             var sceneCameras = SceneCameraManager.Instance();
             var constantsAddress = scanner.ScanText(
@@ -184,6 +193,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
                 throw new InvalidOperationException($"Render camera history layout is not supported by this client (expected=0x{constantsAddress:X}, actual=0x{(sceneCameras == null || sceneCameras->CurrentCamera == null || sceneCameras->CurrentCamera->RenderCamera == null ? 0 : (*(nint**)sceneCameras->CurrentCamera->RenderCamera)[6]):X})");
             gameplayCameraUpdate.Enable();
             ui3DUpdate.Enable();
+            uiUpdate.Enable();
             setTarget.Enable();
             present.Enable();
             matrices.Enable();
@@ -655,6 +665,26 @@ internal sealed unsafe class PortraitRenderer : IDisposable
         finally { Interlocked.Decrement(ref callbacks); }
     }
 
+    private void UpdateUi(nint module, float delta)
+    {
+        Interlocked.Increment(ref callbacks);
+        try
+        {
+            // Main-first legacy rendering has already updated UI this frame.
+            // Keep Draw2D and the completion marker path intact; only reuse the
+            // main view's text, macro, addon and world-space UI update results.
+            if (inPortrait && Backend == RenderBackend.FullTick && !stopping
+                && (InvestigationReuseMainUiUpdate ?? ReuseMainUiUpdate))
+            {
+                SuppressedUiUpdates++;
+                return;
+            }
+            UiUpdates++;
+            uiUpdate!.Original(module, delta);
+        }
+        finally { Interlocked.Decrement(ref callbacks); }
+    }
+
     private void RenderTarget(ImmediateContext* context, RenderCommandSetTarget* command)
     {
         Interlocked.Increment(ref callbacks);
@@ -814,6 +844,7 @@ internal sealed unsafe class PortraitRenderer : IDisposable
 
     private void DisposeHooks()
     {
+        uiUpdate?.Dispose(); uiUpdate = null;
         ui3DUpdate?.Dispose(); ui3DUpdate = null;
         gameplayCameraUpdate?.Dispose(); gameplayCameraUpdate = null;
         tick?.Dispose(); tick = null;

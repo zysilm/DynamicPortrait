@@ -27,6 +27,8 @@ Settings are organized into fixed **Camera**, **Output**, **Window**, and **Diag
 - `/dportrait reset`: reset the portrait window.
 - `/dportrait resetall` or **Reset all settings**: restore settings, clear the locked subject, and stop rendering, preserving both windows' positions and sizes. Use **Reset window** or `/dportrait reset` to reset portrait geometry separately.
 
+Legacy rendering runs the normal game tick before the portrait tick and reuses the normal tick's UI updates by default. Diagnostics includes a session-only **Reuse main UI update** toggle for comparison. Short in-game tests measured about 1 ms less duplicate CPU work per portrait; this is not a guaranteed FPS increase. The second full tick still adds substantial rendering cost. Main-view jitter, aliasing, and dialogue-bubble flicker remain unresolved. See [performance evidence](docs/PERFORMANCE_NEXT_STEPS.md).
+
 ## Build and release
 
 Requires .NET 10 and Dalamud API 15.
