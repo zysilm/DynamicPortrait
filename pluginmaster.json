@@ -3,9 +3,9 @@
     "Name": "Dynamic Portrait",
     "Author": "zysilm",
     "Punchline": "A live portrait camera following your character's bones.",
-    "Description": "Experimental second-view portrait window. Select a character and bone, adjust the camera, and resize the portrait. Uses an additional game tick for each portrait update. Run /dportrait to configure; rendering starts disabled.",
+    "Description": "Experimental second-view portrait window. Select a character and bone, adjust the camera, and resize the portrait. Includes a legacy dual-tick backend and an experimental render-only backend. Run /dportrait to configure; rendering starts disabled.",
     "InternalName": "DynamicPortrait",
-    "AssemblyVersion": "0.1.0.7",
+    "AssemblyVersion": "0.1.1.0",
     "DalamudApiLevel": 15,
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/zysilm/DynamicPortrait",
@@ -16,8 +16,8 @@
     "LoadRequiredState": 2,
     "LoadSync": true,
     "CanUnloadAsync": false,
-    "DownloadLinkInstall": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.0.7/DynamicPortrait.zip",
-    "DownloadLinkUpdate": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.0.7/DynamicPortrait.zip",
-    "DownloadLinkTesting": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.0.7/DynamicPortrait.zip"
+    "DownloadLinkInstall": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.1.0/DynamicPortrait.zip",
+    "DownloadLinkUpdate": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.1.0/DynamicPortrait.zip",
+    "DownloadLinkTesting": "https://github.com/zysilm/DynamicPortrait/releases/download/v0.1.1.0/DynamicPortrait.zip"
   }
 ]
